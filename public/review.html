@@ -1,24 +1,24 @@
 <!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Панель аттестатора</title>
-<style>body{font-family:Arial,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem}.card{border:1px solid #ddd;border-radius:8px;padding:1rem;margin-bottom:1rem}.score{font-size:1.5rem;font-weight:bold;color:#B8A04A}textarea{width:100%;min-height:60px;margin:.5rem 0}button{background:#B8A04A;color:white;border:none;padding:.5rem 1rem;border-radius:4px;cursor:pointer}.chk{margin:.25rem 0}label{display:flex;align-items:center;gap:.5rem}</style></head><body>
+<style>body{font-family:Arial,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem}.card{border:1px solid #ddd;border-radius:8px;padding:1rem;margin-bottom:1rem}.score{font-size:1.5rem;font-weight:bold;color:#B8A04A}textarea{width:100%;min-height:60px;margin:.5rem 0}button{background:#B8A04A;color:white;border:none;padding:.5rem 1rem;border-radius:4px;cursor:pointer}.chk{margin:.25rem 0}label{display:flex;align-items:center;gap:.5rem;cursor:pointer}</style></head><body>
 <h1>📋 Проверка аттестаций</h1>
-<input type="text" id="rid" placeholder="ID результата" style="width:200px;padding:.5rem;margin-right:.5rem">
+<input type="text" id="rid" placeholder="ID результата (например: 1714320000000)" style="width:300px;padding:.5rem;margin-right:.5rem">
 <button onclick="load()">Загрузить</button>
 <div id="area" style="display:none;margin-top:2rem">
   <div class="card"><h3><span id="n"></span> — <span id="p"></span></h3><p>Дата: <span id="d"></span> | Авто: <span class="score" id="s"></span></p></div>
   <div id="q"></div>
-  <button onclick="save()" style="margin-top:1rem;background:#2E7D32">💾 Сохранить</button>
+  <button onclick="save()" style="margin-top:1rem;background:#2E7D32">💾 Сохранить оценку</button>
 </div>
 <script>
-const p=new URLSearchParams(location.search).get('pass')||'';
-async function load(){const id=document.getElementById('rid').value;if(!id)return alert('Введите ID');
-const r=await fetch(`/api/result/${id}?pass=${p}`);if(!r.ok)return alert('Не найдено');
+const PASS = '123123';
+async function load(){const id=document.getElementById('rid').value.trim();if(!id)return alert('Введите ID');
+const r=await fetch(`/api/result/${id}?pass=${PASS}`);if(!r.ok)return alert('Не найдено');
 const d=await r.json();document.getElementById('n').textContent=d.userName;document.getElementById('p').textContent=d.position;
 document.getElementById('d').textContent=new Date(d.submittedAt).toLocaleString('ru-RU');document.getElementById('s').textContent=`${d.autoScore.total}/${d.autoScore.max}`;
-document.getElementById('q').innerHTML=d.questionsWithAnswers.map(q=>`<div class="card"><strong>${q.text}</strong> [${q.points}б]<br><em>Ответ:</em><div style="background:#f9f9f9;padding:.5rem;margin:.5rem 0;border-radius:4px">${q.userAnswer||'—'}</div>${q.criteria?`<em>Критерии:</em><div class="chk">${q.criteria.map(c=>`<label><input type="checkbox" data-cid="${c.id}" data-w="${c.weight}"> ${c.text} (${c.weight}б)</label>`).join('')}</div><textarea placeholder="Комментарий..." id="c-${q.id}"></textarea>`:''}</div>`).join('');
+document.getElementById('q').innerHTML=d.questionsWithAnswers.map(q=>`<div class="card"><strong>${q.text}</strong> [${q.points}б]<br><em>Ответ:</em><div style="background:#f9f9f9;padding:.5rem;margin:.5rem 0;border-radius:4px;white-space:pre-wrap">${q.userAnswer||'—'}</div>${q.criteria?`<em>Критерии:</em><div class="chk">${q.criteria.map(c=>`<label><input type="checkbox" data-cid="${c.id}" data-w="${c.weight}"> ${c.text} (${c.weight}б)</label>`).join('')}</div><textarea placeholder="Комментарий..." id="c-${q.id}"></textarea>`:''}</div>`).join('');
 document.getElementById('area').style.display='block';}
-async function save(){const id=document.getElementById('rid').value;if(!id)return;
+async function save(){const id=document.getElementById('rid').value.trim();if(!id)return;
 const cs={},cm={};document.querySelectorAll('input:checked').forEach(x=>cs[x.dataset.cid]=parseFloat(x.dataset.w));
 document.querySelectorAll('textarea').forEach(t=>{if(t.value.trim())cm[t.id.replace('c-','')]=t.value.trim()});
-await fetch(`/api/review/${id}?pass=${p}`, {method:'POST',headers:{'Content-Type':'application/json','x-assessor-pass':p},body:JSON.stringify({criteriaScores:cs,comments:cm})});
-alert('✅ Сохранено');}
+await fetch(`/api/review/${id}?pass=${PASS}`, {method:'POST',headers:{'Content-Type':'application/json','x-assessor-pass':PASS},body:JSON.stringify({criteriaScores:cs,comments:cm})});
+alert('✅ Оценка сохранена');}
 </script></body></html>
