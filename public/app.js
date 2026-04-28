@@ -1,10 +1,11 @@
-// Глобальные переменные
+// === Глобальные переменные ===
 let schema = null;
 let currentUser = null;
 let answers = {};
 let currentSectionIndex = 0;
+let autoScoreDetails = {}; // { questionId: { earned, max, feedback } }
 
-// DOM элементы
+// === DOM элементы ===
 const screens = {
   login: document.getElementById('login-screen'),
   test: document.getElementById('test-screen'),
@@ -13,17 +14,16 @@ const screens = {
 
 // === ИНИЦИАЛИЗАЦИЯ ===
 document.addEventListener('DOMContentLoaded', async () => {
-  // Загрузка схемы вопросов
   try {
     const response = await fetch('/api/schema');
     schema = await response.json();
     document.title = schema.meta.title;
   } catch (err) {
-    alert('❌ Не удалось загрузить тест. Проверьте соединение с сервером.');
+    alert('❌ Не удалось загрузить тест. Проверьте соединение.');
     console.error(err);
   }
   
-  // Обработчики кнопок
+  // Обработчики
   document.getElementById('login-form').addEventListener('submit', handleLogin);
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
   document.getElementById('prev-btn').addEventListener('click', () => navigateSection(-1));
@@ -39,12 +39,10 @@ function handleLogin(e) {
     name: document.getElementById('userName').value.trim(),
     position: document.getElementById('position').value.trim()
   };
-  
   if (!currentUser.name || !currentUser.position) {
     alert('Заполните все поля');
     return;
   }
-  
   document.getElementById('display-name').textContent = currentUser.name;
   showScreen('test');
   renderTest();
@@ -55,6 +53,7 @@ function handleLogout() {
   if (confirm('Завершить тест без сохранения?')) {
     currentUser = null;
     answers = {};
+    autoScoreDetails = {};
     currentSectionIndex = 0;
     showScreen('login');
   }
@@ -81,7 +80,6 @@ function renderTest() {
       <p class="section-info">Макс. баллов: ${section.maxScore}</p>
       ${section.questions.map(q => renderQuestion(q)).join('')}
     `;
-    
     container.appendChild(sectionEl);
   });
   
@@ -91,6 +89,7 @@ function renderTest() {
 
 function renderQuestion(q) {
   const pointsText = `${q.points} ${q.points === 1 ? 'балл' : q.points < 5 ? 'балла' : 'баллов'}`;
+  const currentValue = answers[q.id]?.value;
   
   switch (q.type) {
     case 'single':
@@ -100,7 +99,7 @@ function renderQuestion(q) {
           <div class="options">
             ${q.options.map(opt => `
               <label class="option">
-                <input type="radio" name="${q.id}" value="${opt.id}">
+                <input type="radio" name="${q.id}" value="${opt.id}" ${currentValue === opt.id ? 'checked' : ''}>
                 <span>${opt.text}</span>
               </label>
             `).join('')}
@@ -109,13 +108,14 @@ function renderQuestion(q) {
       `;
       
     case 'multi':
+      const checkedValues = currentValue || [];
       return `
         <div class="question" data-qid="${q.id}">
           <p class="question-text">${q.text} <span class="question-points">[${pointsText}]</span></p>
           <div class="options">
             ${q.options.map(opt => `
               <label class="option checkbox">
-                <input type="checkbox" name="${q.id}" value="${opt.id}">
+                <input type="checkbox" name="${q.id}" value="${opt.id}" ${checkedValues.includes(opt.id) ? 'checked' : ''}>
                 <span>${opt.text}</span>
               </label>
             `).join('')}
@@ -125,16 +125,14 @@ function renderQuestion(q) {
       `;
       
     case 'truefalse':
-      const currentValue = answers[q.id]?.value;
       return `
         <div class="question" data-qid="${q.id}">
           <p class="question-text">${q.text} <span class="question-points">[${pointsText}]</span></p>
           <div class="tf-options">
-            <button type="button" class="tf-btn ${currentValue === true ? 'selected correct' : ''}" 
-                    data-value="true">☑ ВЕРНО</button>
-            <button type="button" class="tf-btn ${currentValue === false ? 'selected incorrect' : ''}" 
-                    data-value="false">☑ НЕВЕРНО</button>
+            <button type="button" class="tf-btn ${currentValue === true ? 'selected correct' : ''}" data-value="true">☑ ВЕРНО</button>
+            <button type="button" class="tf-btn ${currentValue === false ? 'selected incorrect' : ''}" data-value="false">☑ НЕВЕРНО</button>
           </div>
+          ${q.explanation ? `<p class="hint" style="margin-top:0.5rem;color:#666;font-size:0.9rem">💡 ${q.explanation}</p>` : ''}
         </div>
       `;
       
@@ -142,14 +140,15 @@ function renderQuestion(q) {
       return `
         <div class="question" data-qid="${q.id}">
           <p class="question-text">${q.text} <span class="question-points">[${pointsText}]</span></p>
-          ${q.subtype === 'case' ? `<div class="scenario-box"><strong>СИТУАЦИЯ:</strong> ${q.situation}</div>` : ''}
-          <textarea class="answer-input" placeholder="${q.placeholder || 'Ваш ответ...'}">${answers[q.id]?.value || ''}</textarea>
-          ${q.criteria ? `
+          ${q.subtype === 'scenario' || q.subtype === 'case' ? `<div class="scenario-box"><strong>СИТУАЦИЯ:</strong><br>${q.situation}</div>` : ''}
+          <textarea class="answer-input" placeholder="${q.placeholder || 'Ваш ответ...'}">${currentValue || ''}</textarea>
+          ${q.evaluationCriteria ? `
             <div class="criteria-preview">
               <small>📋 На что обратит внимание аттестатор:</small>
-              <ul>${q.criteria.map(c => `<li>${c}</li>`).join('')}</ul>
+              <ul>${q.evaluationCriteria.map(c => `<li>${c}</li>`).join('')}</ul>
             </div>
           ` : ''}
+          ${q.autoCheckKeywords ? `<p class="hint">💡 Подсказка: в ответе должны быть слова: ${q.autoCheckKeywords.slice(0,3).join(', ')}...</p>` : ''}
         </div>
       `;
       
@@ -160,42 +159,42 @@ function renderQuestion(q) {
 
 // === ОБРАБОТЧИКИ СОБЫТИЙ ===
 function attachEventListeners() {
-  // Radio и checkbox
-  document.querySelectorAll('input[type="radio"], input[type="checkbox"]').forEach(input => {
+  // Radio
+  document.querySelectorAll('input[type="radio"]').forEach(input => {
     input.addEventListener('change', (e) => {
       const qid = e.target.name;
-      const type = schema.sections.flatMap(s => s.questions).find(q => q.id === qid)?.type;
-      
-      if (type === 'single') {
-        answers[qid] = { value: e.target.value, timestamp: Date.now() };
-      } else if (type === 'multi') {
-        const checked = document.querySelectorAll(`input[name="${qid}"]:checked`);
-        answers[qid] = { 
-          value: Array.from(checked).map(c => c.value), 
-          timestamp: Date.now() 
-        };
-      }
+      answers[qid] = { value: e.target.value, timestamp: Date.now() };
       updateProgress();
     });
   });
   
-  // True/False кнопки
+  // Checkbox
+  document.querySelectorAll('input[type="checkbox"]').forEach(input => {
+    input.addEventListener('change', (e) => {
+      const qid = e.target.name;
+      const checked = document.querySelectorAll(`input[name="${qid}"]:checked`);
+      answers[qid] = { 
+        value: Array.from(checked).map(c => c.value), 
+        timestamp: Date.now() 
+      };
+      updateProgress();
+    });
+  });
+  
+  // True/False
   document.querySelectorAll('.tf-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const questionEl = e.target.closest('.question');
       const qid = questionEl.dataset.qid;
       const value = e.target.dataset.value === 'true';
-      
-      // Визуальное выделение
       questionEl.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('selected'));
       e.target.classList.add('selected');
-      
       answers[qid] = { value, timestamp: Date.now() };
       updateProgress();
     });
   });
   
-  // Текстовые поля
+  // Textarea
   document.querySelectorAll('.answer-input').forEach(textarea => {
     textarea.addEventListener('input', (e) => {
       const qid = e.target.closest('.question').dataset.qid;
@@ -206,17 +205,12 @@ function attachEventListeners() {
 }
 
 function navigateSection(direction) {
-  // Сохраняем текущие ответы перед переходом
   saveCurrentSectionAnswers();
-  
   const newIndex = currentSectionIndex + direction;
   if (newIndex < 0 || newIndex >= schema.sections.length) return;
-  
-  // Скрываем текущий раздел, показываем новый
   document.getElementById(`section-${currentSectionIndex}`).style.display = 'none';
   currentSectionIndex = newIndex;
   document.getElementById(`section-${currentSectionIndex}`).style.display = 'block';
-  
   updateNavigation();
   updateProgress();
 }
@@ -232,15 +226,12 @@ function saveCurrentSectionAnswers() {
     } else if (q.type === 'multi') {
       const checked = document.querySelectorAll(`input[name="${q.id}"]:checked`);
       if (checked.length > 0 && !answers[q.id]) {
-        answers[q.id] = { 
-          value: Array.from(checked).map(c => c.value), 
-          timestamp: Date.now() 
-        };
+        answers[q.id] = { value: Array.from(checked).map(c => c.value), timestamp: Date.now() };
       }
     } else if (q.type === 'text') {
       const textarea = document.querySelector(`.question[data-qid="${q.id}"] .answer-input`);
-      if (textarea?.value && !answers[q.id]) {
-        answers[q.id] = { value: textarea.value, timestamp: Date.now() };
+      if (textarea?.value.trim() && !answers[q.id]) {
+        answers[q.id] = { value: textarea.value.trim(), timestamp: Date.now() };
       }
     }
   });
@@ -250,9 +241,7 @@ function updateNavigation() {
   const prevBtn = document.getElementById('prev-btn');
   const nextBtn = document.getElementById('next-btn');
   const submitBtn = document.getElementById('submit-btn');
-  
   prevBtn.disabled = currentSectionIndex === 0;
-  
   if (currentSectionIndex === schema.sections.length - 1) {
     nextBtn.style.display = 'none';
     submitBtn.style.display = 'inline-block';
@@ -266,22 +255,76 @@ function updateProgress() {
   const totalQuestions = schema.sections.reduce((sum, s) => sum + s.questions.length, 0);
   const answeredQuestions = Object.keys(answers).length;
   const percent = Math.round(answeredQuestions / totalQuestions * 100);
-  
   document.getElementById('progress-fill').style.width = `${percent}%`;
   document.getElementById('progress-text').textContent = `${percent}%`;
 }
 
-// === ОТПРАВКА ===
+// === АВТО-ПРОВЕРКА ТЕКСТОВЫХ ОТВЕТОВ ===
+function checkTextAnswer(question, userAnswer) {
+  if (!question.autoCheckKeywords || !userAnswer) return null;
+  
+  const answerLower = userAnswer.toLowerCase();
+  const matched = question.autoCheckKeywords.filter(kw => answerLower.includes(kw.toLowerCase()));
+  const matchRatio = matched.length / question.autoCheckKeywords.length;
+  
+  if (matchRatio >= 0.6) {
+    return { earned: question.points, feedback: '✅ Ключевые элементы присутствуют' };
+  } else if (matchRatio >= 0.3) {
+    return { earned: Math.round(question.points * 0.5), feedback: '⚠️ Частично соответствует: не все ключевые элементы' };
+  } else {
+    return { earned: 0, feedback: '❌ Не хватает ключевых элементов стандарта' };
+  }
+}
+
+// === ОТПРАВКА И ПОДСЧЁТ ===
 async function handleSubmit() {
   saveCurrentSectionAnswers();
-  
-  if (!confirm('Завершить аттестацию? Изменить ответы будет нельзя.')) {
-    return;
-  }
+  if (!confirm('Завершить аттестацию? Изменить ответы будет нельзя.')) return;
   
   const submitBtn = document.getElementById('submit-btn');
   submitBtn.disabled = true;
   submitBtn.textContent = 'Отправка...';
+  
+  // Подсчёт авто-баллов
+  let autoScore = 0, maxAutoScore = 0;
+  autoScoreDetails = {};
+  
+  schema.sections.forEach(section => {
+    section.questions.forEach(q => {
+      if (['single', 'truefalse'].includes(q.type)) {
+        maxAutoScore += q.points;
+        const userAnswer = answers[q.id]?.value;
+        const correct = q.type === 'truefalse' ? q.correctAnswer : q.options?.find(o => o.correct)?.id;
+        if (userAnswer === correct) {
+          autoScore += q.points;
+          autoScoreDetails[q.id] = { earned: q.points, max: q.points, feedback: '✅ Верно' };
+        } else {
+          autoScoreDetails[q.id] = { earned: 0, max: q.points, feedback: q.explanation ? `❌ ${q.explanation}` : '❌ Неверно' };
+        }
+      } else if (q.type === 'multi') {
+        maxAutoScore += q.points;
+        const userAnswers = answers[q.id]?.value || [];
+        const correctAnswers = q.options?.filter(o => o.correct).map(o => o.id) || [];
+        const isFullyCorrect = userAnswers.length === correctAnswers.length && userAnswers.every(a => correctAnswers.includes(a));
+        if (isFullyCorrect) {
+          autoScore += q.points;
+          autoScoreDetails[q.id] = { earned: q.points, max: q.points, feedback: '✅ Все варианты верны' };
+        } else {
+          const partial = userAnswers.filter(a => correctAnswers.includes(a)).length;
+          const earned = Math.round(q.points * partial / correctAnswers.length);
+          autoScore += earned;
+          autoScoreDetails[q.id] = { earned, max: q.points, feedback: `⚠️ Верно ${partial} из ${correctAnswers.length}` };
+        }
+      } else if (q.type === 'text' && q.autoCheckKeywords) {
+        maxAutoScore += q.points;
+        const result = checkTextAnswer(q, answers[q.id]?.value);
+        if (result) {
+          autoScore += result.earned;
+          autoScoreDetails[q.id] = { ...result, max: q.points };
+        }
+      }
+    });
+  });
   
   try {
     const response = await fetch('/api/submit', {
@@ -290,14 +333,13 @@ async function handleSubmit() {
       body: JSON.stringify({
         userName: currentUser.name,
         position: currentUser.position,
-        answers
+        answers,
+        autoScoreDetails
       })
     });
-    
     const result = await response.json();
-    
     if (result.success) {
-      showResult(result);
+      showResult(result, autoScore, maxAutoScore);
     } else {
       throw new Error(result.error || 'Ошибка отправки');
     }
@@ -309,24 +351,22 @@ async function handleSubmit() {
   }
 }
 
-function showResult(apiResult) {
+function showResult(apiResult, autoScore, maxAutoScore) {
   showScreen('result');
+  const percentage = maxAutoScore > 0 ? Math.round(autoScore / maxAutoScore * 100) : 0;
   
-  const { score, passingScore } = apiResult;
-  const percentage = score.percentage;
+  document.getElementById('score-value').textContent = autoScore;
+  document.getElementById('score-max').textContent = maxAutoScore;
   
-  // Отображение счёта
-  document.getElementById('score-value').textContent = score.total;
-  document.getElementById('score-max').textContent = score.max;
-  
-  // Бейдж результата
   const badge = document.getElementById('result-badge');
   const message = document.getElementById('result-message');
   
-  if (percentage >= passingScore) {
+  if (percentage >= schema.meta.passingScore) {
     badge.textContent = '✅ Пройдено';
     badge.className = 'badge passed';
-    message.textContent = 'Поздравляем! Вы успешно прошли аттестацию.';
+    message.textContent = percentage >= schema.meta.excellentScore 
+      ? '🌟 Отличный результат! Вы глубоко знаете стандарт.' 
+      : 'Поздравляем! Вы успешно прошли аттестацию.';
     document.getElementById('result-title').textContent = '🎉 Аттестация пройдена!';
   } else {
     badge.textContent = '📋 На проверке';
@@ -334,27 +374,38 @@ function showResult(apiResult) {
     message.textContent = 'Открытые вопросы отправлены аттестатору. Ожидайте обратной связи.';
   }
   
-  // Детали
+  // Детализация
   const detailsEl = document.getElementById('result-details');
+  const textQuestions = Object.entries(answers).filter(([qid]) => {
+    const q = schema.sections.flatMap(s => s.questions).find(q => q.id === qid);
+    return q?.type === 'text' && !q.autoCheckKeywords;
+  });
+  
   detailsEl.innerHTML = `
     <h4>📊 Детализация:</h4>
-    <div class="result-item">
-      <strong>Автоматические вопросы:</strong> ${score.total} / ${score.max} баллов
+    <div class="result-item ${autoScore >= schema.meta.passingScore ? 'correct' : 'pending'}">
+      <strong>Автоматические вопросы:</strong> ${autoScore} / ${maxAutoScore} баллов (${percentage}%)
     </div>
-    <div class="result-item">
-      <strong>Открытые вопросы:</strong> ${Object.values(answers).filter(a => 
-        schema.sections.flatMap(s => s.questions).find(q => q.id === a.questionId)?.type === 'text'
-      ).length} на ручной проверке
+    <div class="result-item pending">
+      <strong>Открытые вопросы на ручной проверке:</strong> ${textQuestions.length}
     </div>
     <div class="result-item">
       <strong>Дата:</strong> ${new Date().toLocaleDateString('ru-RU')}
     </div>
+    ${Object.entries(autoScoreDetails).slice(0, 5).map(([qid, detail]) => {
+      const q = schema.sections.flatMap(s => s.questions).find(q => q.id === qid);
+      return `<div class="result-item ${detail.earned === detail.max ? 'correct' : detail.earned > 0 ? 'pending' : 'incorrect'}">
+        <strong>${q?.text?.slice(0, 60)}${q?.text?.length > 60 ? '...' : ''}</strong><br>
+        ${detail.feedback} (${detail.earned}/${detail.max})
+      </div>`;
+    }).join('')}
   `;
 }
 
 function handleRestart() {
   if (confirm('Начать аттестацию заново? Текущие ответы будут удалены.')) {
     answers = {};
+    autoScoreDetails = {};
     currentSectionIndex = 0;
     showScreen('login');
     document.getElementById('login-form').reset();
