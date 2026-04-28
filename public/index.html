@@ -1,11 +1,67 @@
-<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Аттестация хостес</title><link rel="stylesheet" href="styles.css"></head>
-<body><div class="container">
-  <div id="login-screen" class="screen active"><h1>🎯 Аттестация подразделения хостес</h1><p class="subtitle">Стандарт встречи и размещения гостей</p>
-    <form id="login-form"><div class="form-group"><label>ФИО сотрудника *</label><input type="text" id="userName" required placeholder="Иванова Мария"></div><div class="form-group"><label>Должность *</label><input type="text" id="position" required placeholder="Хостес"></div><button type="submit" class="btn-primary">Начать аттестацию →</button></form>
-    <div class="info-box"><strong>ℹ️ Информация:</strong><ul><li>Проходной балл: <strong>70 из 100</strong></li><li>Авто-проверка + оценка аттестатора</li><li>Результаты сохраняются автоматически</li></ul></div>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#B8A04A">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="format-detection" content="telephone=no">
+  <title>Аттестация хостес</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <div id="login-screen" class="screen active">
+      <h1>🎯 Аттестация подразделения хостес</h1>
+      <p class="subtitle">Стандарт встречи и размещения гостей</p>
+      <form id="login-form" autocomplete="off" novalidate>
+        <div class="form-group">
+          <label for="userName">ФИО сотрудника *</label>
+          <input type="text" id="userName" required placeholder="Иванова Мария" inputmode="text" autocomplete="name">
+        </div>
+        <div class="form-group">
+          <label for="position">Должность *</label>
+          <input type="text" id="position" required placeholder="Хостес" inputmode="text" autocomplete="organization-title">
+        </div>
+        <button type="submit" class="btn-primary" id="start-btn">Начать аттестацию →</button>
+      </form>
+      <div class="info-box">
+        <strong>ℹ️ Информация:</strong>
+        <ul>
+          <li>Проходной балл: <strong>70 из 100</strong></li>
+          <li>Авто-проверка + оценка аттестатора</li>
+          <li>Результаты сохраняются автоматически</li>
+        </ul>
+      </div>
+    </div>
+
+    <div id="test-screen" class="screen">
+      <header class="test-header">
+        <div class="user-info"><span id="display-name">Гость</span><button id="logout-btn" class="btn-small">✕ Выйти</button></div>
+        <div class="progress"><span>Прогресс:</span><div class="progress-bar"><div id="progress-fill" style="width:0%"></div></div><span id="progress-text">0%</span></div>
+      </header>
+      <div id="sections-container"></div>
+      <div class="navigation">
+        <button id="prev-btn" class="btn-secondary" disabled>← Назад</button>
+        <button id="next-btn" class="btn-primary">Далее →</button>
+        <button id="submit-btn" class="btn-success" style="display:none">✅ Завершить</button>
+      </div>
+    </div>
+
+    <div id="result-screen" class="screen">
+      <div class="result-card">
+        <h2 id="result-title">✅ Аттестация завершена</h2>
+        <div class="score-display"><div class="score-circle"><span id="score-value">0</span><small>из <span id="score-max">100</span></small></div><div id="result-badge" class="badge">Ожидание</div></div>
+        <p id="result-message" class="result-message"></p>
+        <div class="result-actions">
+          <button onclick="window.print()" class="btn-secondary">🖨️ Сохранить PDF</button>
+          <button id="restart-btn" class="btn-primary">🔄 Заново</button>
+        </div>
+        <div class="result-details" id="result-details"></div>
+      </div>
+    </div>
   </div>
-  <div id="test-screen" class="screen"><header class="test-header"><div class="user-info"><span id="display-name">Гость</span><button id="logout-btn" class="btn-small">✕ Выйти</button></div><div class="progress"><span>Прогресс:</span><div class="progress-bar"><div id="progress-fill" style="width:0%"></div></div><span id="progress-text">0%</span></div></header>
-    <div id="sections-container"></div><div class="navigation"><button id="prev-btn" class="btn-secondary" disabled>← Назад</button><button id="next-btn" class="btn-primary">Далее →</button><button id="submit-btn" class="btn-success" style="display:none">✅ Завершить</button></div>
-  </div>
-  <div id="result-screen" class="screen"><div class="result-card"><h2 id="result-title">✅ Аттестация завершена</h2><div class="score-display"><div class="score-circle"><span id="score-value">0</span><small>из <span id="score-max">100</span></small></div><div id="result-badge" class="badge">Ожидание</div></div><p id="result-message" class="result-message"></p><div class="result-actions"><button onclick="window.print()" class="btn-secondary">🖨️ Сохранить PDF</button><button id="restart-btn" class="btn-primary">🔄 Заново</button></div><div class="result-details" id="result-details"></div></div></div>
-</div><script src="app.js"></script></body></html>
+  <script src="app.js"></script>
+</body>
+</html>
