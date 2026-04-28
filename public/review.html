@@ -11,18 +11,20 @@ label{display:flex;align-items:center;gap:.5rem;cursor:pointer;padding:.25rem 0}
 #input-area{background:#fff;padding:1rem;border-radius:8px;border:1px solid #ddd;display:flex;align-items:center;gap:.5rem;margin-bottom:1rem}
 #loading{display:none;text-align:center;padding:2rem;color:#666;font-size:1.1rem}
 .hidden{display:none!important}
-.correct-answer{background:#f0f9f0;border-left:4px solid #2E7D32;padding:.5rem .75rem;margin:.5rem 0;border-radius:0 4px 4px 0;font-size:.9rem}
-.correct-answer.multi{background:#fff8e1;border-left-color:#B8A04A}
-.correct-label{font-weight:600;color:#2E7D32;margin-right:.25rem}
-.keywords-hint{background:#f5f5f5;padding:.4rem .6rem;border-radius:4px;font-size:.85rem;color:#666;margin-top:.3rem}
 .q-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.5rem;flex-wrap:wrap;gap:.5rem}
 .q-points{background:#B8A04A;color:white;padding:.2rem .5rem;border-radius:4px;font-size:.85rem;font-weight:500}
-.user-answer{background:#f9f9f9;padding:.6rem;margin:.3rem 0;border-radius:4px;white-space:pre-wrap;line-height:1.4;font-size:.95rem}
-.criteria-section{margin-top:.75rem;padding-top:.75rem;border-top:1px dashed #ddd}
 .badge-status{padding:4px 8px;border-radius:4px;font-weight:600;font-size:.85rem}
 .badge-ok{background:#e8f5e9;color:#2E7D32}
 .badge-fail{background:#ffebee;color:#C0392B}
 .badge-pend{background:#fff8e1;color:#B8A04A}
+.comparison{margin-top:.5rem;padding:.6rem;background:#fafafa;border-radius:6px;border-left:4px solid #ccc}
+.comparison.correct{border-left-color:#2E7D32;background:#f0f9f0}
+.comparison.wrong{border-left-color:#C0392B;background:#fff5f5}
+.comparison.partial{border-left-color:#B8A04A;background:#fffbeb}
+.user-label{font-weight:600;color:#555;margin-bottom:.3rem}
+.correct-label{font-weight:600;color:#2E7D32;margin-top:.5rem}
+.keywords{background:#f5f5f5;padding:.4rem .6rem;border-radius:4px;font-size:.85rem;color:#666;margin-top:.3rem}
+.criteria-section{margin-top:.75rem;padding-top:.75rem;border-top:1px dashed #ddd}
 </style></head><body>
 <h1>📋 Проверка аттестаций</h1>
 <div id="input-area">
@@ -42,50 +44,6 @@ const params = new URLSearchParams(window.location.search);
 const PASS = params.get('pass') || '123123';
 const AUTO_ID = params.get('id');
 let CURRENT_ID = '';
-let QUESTIONS_DB = null;
-
-async function loadQuestionsDB() {
-  try {
-    const res = await fetch(`/api/schema-full?pass=${PASS}`);
-    if (res.ok) QUESTIONS_DB = await res.json();
-  } catch(e) { console.warn('Не удалось загрузить полную схему'); }
-}
-
-function checkAnswer(userAns, dbQ) {
-  if (!dbQ || (userAns === undefined || userAns === '')) return null;
-  if (dbQ.type === 'truefalse') return userAns === dbQ.correctAnswer;
-  if (dbQ.type === 'single') return userAns === dbQ.options?.find(o => o.correct)?.id;
-  if (dbQ.type === 'multi') {
-    const correctIds = dbQ.options?.filter(o => o.correct).map(o => o.id) || [];
-    const userIds = Array.isArray(userAns) ? userAns : [];
-    return correctIds.length === userIds.length && correctIds.every(id => userIds.includes(id));
-  }
-  return null;
-}
-
-function getStatusBadge(userAns, dbQ) {
-  const res = checkAnswer(userAns, dbQ);
-  if (res === true) return '<span class="badge-status badge-ok">✅ Верно</span>';
-  if (res === false) return '<span class="badge-status badge-fail">❌ Неверно</span>';
-  return '<span class="badge-status badge-pend">📝 Ручная проверка</span>';
-}
-
-function getCorrectAnswerHTML(q) {
-  if (!q) return '';
-  if (q.type === 'truefalse') return `<div class="correct-answer">✅ Правильно: ${q.correctAnswer === true ? 'ВЕРНО' : 'НЕВЕРНО'}</div>`;
-  if (q.type === 'single') {
-    const opt = q.options?.find(o => o.correct);
-    return opt ? `<div class="correct-answer">✅ ${opt.text}</div>` : '';
-  }
-  if (q.type === 'multi') {
-    const opts = q.options?.filter(o => o.correct).map(o => o.text) || [];
-    return opts.length ? `<div class="correct-answer multi">✅ ${opts.join('; ')}</div>` : '';
-  }
-  if (q.type === 'text' && q.autoCheckKeywords) {
-    return `<div class="keywords-hint">🔑 Ключевые элементы: ${q.autoCheckKeywords.join(', ')}</div>`;
-  }
-  return '';
-}
 
 async function load() {
   const id = AUTO_ID || document.getElementById('rid').value.trim();
@@ -96,7 +54,6 @@ async function load() {
   document.getElementById('area').classList.add('hidden');
 
   try {
-    if (!QUESTIONS_DB) await loadQuestionsDB();
     const res = await fetch(`/api/result/${id}?pass=${PASS}`);
     if (!res.ok) throw new Error('Результат не найден');
     const d = await res.json();
@@ -107,20 +64,41 @@ async function load() {
     document.getElementById('s').textContent = `${d.autoScore.total}/${d.autoScore.max} (${d.autoScore.percentage}%)`;
 
     document.getElementById('q').innerHTML = d.questionsWithAnswers.map(q => {
-      const dbQ = QUESTIONS_DB?.sections?.flatMap(s => s.questions).find(x => x.id === q.id);
-      const statusHtml = getStatusBadge(q.userAnswer, dbQ);
+      const status = q.autoGrade.isCorrect ? 'ok' : (q.autoGrade.earned > 0 ? 'partial' : 'fail');
+      const statusBadge = `<span class="badge-status badge-${status}">${q.autoGrade.feedback}</span>`;
+      
+      let comparisonHtml = '';
+      const userAns = q.userAnswer;
+      const c = q.correct;
+
+      if (c.type === 'single' || c.type === 'truefalse') {
+        const correctVal = c.type === 'truefalse' ? (c.correctAnswer ? 'ВЕРНО' : 'НЕВЕРНО') : c.options.find(o=>o.correct)?.text;
+        const userVal = c.type === 'truefalse' ? (userAns === true ? 'ВЕРНО' : userAns === false ? 'НЕВЕРНО' : '—') : c.options.find(o=>o.id===userAns)?.text || '—';
+        const match = userAns === (c.type === 'truefalse' ? c.correctAnswer : c.options.find(o=>o.correct)?.id);
+        comparisonHtml = `<div class="comparison ${match?'correct':'wrong'}"><div class="user-label">Ответ сотрудника: <strong>${userVal}</strong></div><div class="correct-label">Правильный ответ: <strong>${correctVal}</strong></div></div>`;
+      } 
+      else if (c.type === 'multi') {
+        const correctIds = c.options.filter(o=>o.correct).map(o=>o.id);
+        const userIds = Array.isArray(userAns) ? userAns : [];
+        const correctTexts = c.options.filter(o=>correctIds.includes(o.id)).map(o=>o.text);
+        const userTexts = c.options.filter(o=>userIds.includes(o.id)).map(o=>o.text);
+        const match = JSON.stringify(correctIds.sort()) === JSON.stringify(userIds.sort());
+        comparisonHtml = `<div class="comparison ${match?'correct':'partial'}"><div class="user-label">Выбрал(а) сотрудник: <strong>${userTexts.length ? userTexts.join(', ') : 'Ничего'}</strong></div><div class="correct-label">Нужно было выбрать: <strong>${correctTexts.join(', ')}</strong></div></div>`;
+      }
+      else if (c.type === 'text') {
+        const match = q.autoGrade.isCorrect;
+        const keywords = c.autoCheckKeywords?.join(', ') || '—';
+        comparisonHtml = `<div class="comparison ${match?'correct':(q.autoGrade.earned>0?'partial':'wrong')}"><div class="user-label">Ответ сотрудника: <div style="white-space:pre-wrap;background:#fff;padding:.4rem;border-radius:4px;margin-top:.2rem">${userAns || '—'}</div></div><div class="correct-label">Ключевые элементы: <div class="keywords">${keywords}</div></div><div style="margin-top:.3rem;font-size:.9rem;color:#555">Авто-балл: <strong>${q.autoGrade.earned}/${q.autoGrade.max}</strong> | ${q.autoGrade.feedback}</div></div>`;
+      }
+
       return `
       <div class="card">
-        <div class="q-header">
-          <strong>${q.text}</strong>
-          <div style="display:flex;align-items:center;gap:.5rem">${statusHtml}<span class="q-points">${q.points}б</span></div>
-        </div>
-        <em>Ответ сотрудника:</em><div class="user-answer">${q.userAnswer || '—'}</div>
-        ${getCorrectAnswerHTML(dbQ)}
+        <div class="q-header"><strong>${q.text}</strong><div style="display:flex;align-items:center;gap:.5rem">${statusBadge}<span class="q-points">${q.points}б</span></div></div>
+        ${comparisonHtml}
         ${q.criteria ? `
           <div class="criteria-section">
-            <em>Критерии оценки:</em>
-            <div class="chk">${q.criteria.map(c => `<label><input type="checkbox" data-cid="${c.id}" data-w="${c.weight}"> ${c.text} <small style="color:#666">(${c.weight}б)</small></label>`).join('')}</div>
+            <em style="color:#B8A04A;font-weight:600">📋 На что обратит внимание аттестатор:</em>
+            <div class="chk" style="margin:.5rem 0">${q.criteria.map(cr => `<label><input type="checkbox" data-cid="${cr.id}" data-w="${cr.weight}"> ${cr.text} <small style="color:#666">(${cr.weight}б)</small></label>`).join('')}</div>
             <textarea placeholder="Комментарий аттестатора..." id="c-${q.id}"></textarea>
           </div>` : ''}
       </div>`;
