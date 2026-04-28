@@ -35,7 +35,7 @@ app.get('/api/schema', (req, res) => {
   res.json(safe);
 });
 
-// 🔍 Полная схема для аттестатора (с правильными ответами)
+// 🔍 Полная схема для аттестатора
 app.get('/api/schema-full', (req, res) => {
   if (req.query.pass !== ASSESSOR_PASS) return res.status(401).json({ error: 'Unauthorized' });
   res.json(questions);
@@ -45,12 +45,7 @@ app.get('/api/schema-full', (req, res) => {
 async function notifyAttestator(result) {
   if (!TG_TOKEN || !TG_CHAT_ID) return;
   try {
-    const text = `📝 *Новая аттестация*\n` +
-                 `👤 *ФИО:* ${result.userName}\n` +
-                 `💼 *Должность:* ${result.position}\n` +
-                 `📊 *Авто-балл:* ${result.autoScore.total}/${result.autoScore.max} (${result.autoScore.percentage}%)\n` +
-                 `🆔 *ID:* \`${result.id}\`\n` +
-                 `🔗 *Проверка:* ${process.env.RENDER_EXTERNAL_URL || 'https://ваш-сайт.onrender.com'}/review?pass=${ASSESSOR_PASS}&id=${result.id}`;
+    const text = `📝 *Новая аттестация*\n👤 *ФИО:* ${result.userName}\n💼 *Должность:* ${result.position}\n📊 *Авто-балл:* ${result.autoScore.total}/${result.autoScore.max} (${result.autoScore.percentage}%)\n🆔 *ID:* \`${result.id}\`\n🔗 *Проверка:* ${process.env.RENDER_EXTERNAL_URL || 'https://ваш-сайт.onrender.com'}/review?pass=${ASSESSOR_PASS}&id=${result.id}`;
     await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: TG_CHAT_ID, text, parse_mode: 'Markdown' })
