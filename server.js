@@ -68,14 +68,15 @@ app.post('/api/submit', async (req, res) => {
       const c = q.type === 'truefalse' ? q.correctAnswer : q.options?.find(o => o.correct)?.id;
       const ok = u === c;
       if (ok) auto += q.points;
-      details[q.id] = { earned: ok ? q.points : 0, max: q.points, feedback: ok ? '✅ Верно' : '❌ Неверно' };
+      details[q.id] = { earned: ok ? q.points : 0, max: q.points, feedback: ok ? '✅ Верно' : '❌ Неверно', isCorrect: ok };
     } else if (q.type === 'multi') {
       max += q.points;
       const ua = Array.isArray(u) ? u : [];
       const ca = q.options?.filter(o => o.correct).map(o => o.id) || [];
-      const ok = ua.length === ca.length && ua.every(v => ca.includes(v));
+      const correctCount = ca.filter(c => ua.includes(c)).length;
+      const ok = ua.length === ca.length && correctCount === ca.length;
       auto += ok ? q.points : 0;
-      details[q.id] = { earned: ok ? q.points : 0, max: q.points, feedback: ok ? '✅ Все верно' : '⚠️ Есть ошибки' };
+      details[q.id] = { earned: ok ? q.points : 0, max: q.points, feedback: ok ? '✅ Все верно' : `⚠️ Верно ${correctCount}/${ca.length}`, isCorrect: ok };
     } else if (q.type === 'text' && q.autoCheckKeywords) {
       max += q.points;
       const txt = (u || '').toLowerCase();
@@ -85,7 +86,9 @@ app.post('/api/submit', async (req, res) => {
       if (ratio >= 0.6) { earned = q.points; fb = '✅ Ключевые элементы присутствуют'; }
       else if (ratio >= 0.3) { earned = Math.round(q.points * 0.5); fb = '⚠️ Частично соответствует'; }
       auto += earned;
-      details[q.id] = { earned, max: q.points, feedback: fb };
+      details[q.id] = { earned, max: q.points, feedback: fb, isCorrect: ratio >= 0.6 };
+    } else {
+      details[q.id] = { earned: 0, max: q.points, feedback: '📝 Ручная оценка', isCorrect: false };
     }
   }));
 
@@ -103,15 +106,26 @@ app.post('/api/submit', async (req, res) => {
   res.json({ success: true, resultId: result.id, score: result.autoScore });
 });
 
-// 📊 Результат для проверки
+// 📊 Результат для проверки (с обогащёнными данными)
 app.get('/api/result/:id', (req, res) => {
   const path = join(resDir, `result_${req.params.id}.json`);
   try {
     const r = JSON.parse(readFileSync(path, 'utf-8'));
-    r.questionsWithAnswers = questions.sections.flatMap(s => s.questions.map(q => ({
-      id: q.id, text: q.text, type: q.type, points: q.points,
-      userAnswer: r.answers[q.id]?.value, criteria: q.criteria
-    })));
+    r.questionsWithAnswers = questions.sections.flatMap(s => s.questions.map(q => {
+      const detail = r.autoScoreDetails?.[q.id] || {};
+      return {
+        id: q.id, text: q.text, type: q.type, points: q.points,
+        userAnswer: r.answers[q.id]?.value,
+        criteria: q.criteria,
+        autoGrade: {
+          earned: detail.earned || 0,
+          max: q.points,
+          feedback: detail.feedback || '📝 Ожидает проверки',
+          isCorrect: detail.isCorrect || false
+        },
+        correct: q
+      };
+    }));
     res.json(r);
   } catch { res.status(404).json({ error: 'Not found' }); }
 });
