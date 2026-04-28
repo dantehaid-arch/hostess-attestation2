@@ -136,7 +136,38 @@ app.get('/api/result/:id', (req, res) => {
     res.status(404).json({ error: 'Result not found' });
   }
 });
+// Простая панель аттестатора
+app.get('/review', (req, res) => {
+  res.sendFile(join(__dirname, 'public', 'review.html'));
+});
 
+app.get('/api/result/:id', (req, res) => {
+  const filePath = join(__dirname, 'results', `result_${req.params.id}.json`);
+  try {
+    const result = JSON.parse(readFileSync(filePath, 'utf-8'));
+    // Добавляем вопросы с правильными ответами для проверки
+    result.questionsWithAnswers = schema.sections.flatMap(s => 
+      s.questions.map(q => ({
+        id: q.id, text: q.text, type: q.type, points: q.points,
+        correctAnswer: q.type === 'truefalse' ? q.correctAnswer : q.options?.find(o => o.correct)?.id,
+        correctOptions: q.options?.filter(o => o.correct).map(o => o.id),
+        userAnswer: result.answers[q.id]?.value,
+        criteria: q.criteria,
+        autoCheckKeywords: q.autoCheckKeywords
+      }))
+    );
+    res.json(result);
+  } catch { res.status(404).json({ error: 'Not found' }); }
+});
+
+app.post('/api/review/:id', (req, res) => {
+  const { criteriaScores, comments } = req.body;
+  const filePath = join(__dirname, 'results', `result_${req.params.id}.json`);
+  const result = JSON.parse(readFileSync(filePath, 'utf-8'));
+  result.manualReview = { criteriaScores, comments, reviewedAt: new Date().toISOString() };
+  writeFileSync(filePath, JSON.stringify(result, null, 2));
+  res.json({ success: true });
+});
 // Запуск сервера
 app.listen(PORT, () => {
   console.log(`🚀 Сервер запущен: http://localhost:${PORT}`);
