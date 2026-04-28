@@ -1,19 +1,35 @@
-let schema = null, currentUser = null, answers = {}, currentSection = 0;
-const screens = { login: document.getElementById('login-screen'), test: document.getElementById('test-screen'), result: document.getElementById('result-screen') };
+let schema = null, isSchemaLoaded = false, currentUser = null, answers = {}, currentSection = 0;
+const screens = { 
+  login: document.getElementById('login-screen'), 
+  test: document.getElementById('test-screen'), 
+  result: document.getElementById('result-screen') 
+};
 
 document.addEventListener('DOMContentLoaded', async () => {
-  try { schema = await (await fetch('/api/schema')).json(); document.title = schema.meta.title; } 
-  catch (err) { alert('❌ Ошибка загрузки теста'); console.error(err); }
-  
-  const form = document.getElementById('login-form');
-  form.addEventListener('submit', handleLogin, { passive: false });
+  const startBtn = document.getElementById('start-btn');
+  if (startBtn) { startBtn.disabled = true; startBtn.textContent = '⏳ Загрузка...'; }
+
+  try {
+    const res = await fetch('/api/schema');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    schema = await res.json();
+    isSchemaLoaded = true;
+    document.title = schema.meta.title;
+    if (startBtn) { startBtn.disabled = false; startBtn.textContent = 'Начать аттестацию →'; }
+    console.log('✅ Схема загружена:', schema.sections.length, 'разделов');
+  } catch (err) {
+    console.error('❌ Ошибка загрузки schema:', err);
+    alert('❌ Не удалось загрузить тест. Проверьте интернет и обновите страницу.');
+    if (startBtn) startBtn.textContent = '❌ Ошибка';
+  }
+
+  document.getElementById('login-form').addEventListener('submit', handleLogin, { passive: false });
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
   document.getElementById('prev-btn').addEventListener('click', () => nav(-1));
   document.getElementById('next-btn').addEventListener('click', () => nav(1));
   document.getElementById('submit-btn').addEventListener('click', submit);
   document.getElementById('restart-btn').addEventListener('click', restart);
-  
-  // Фикс высоты при открытии клавиатуры (iOS/Android)
+
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', () => {
       document.body.style.height = `${window.visualViewport.height}px`;
@@ -24,6 +40,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 function handleLogin(e) {
   e.preventDefault();
   e.stopPropagation();
+  
+  if (!isSchemaLoaded) {
+    alert('⏳ Подождите, загрузка вопросов...');
+    return;
+  }
   
   const nameEl = document.getElementById('userName');
   const posEl = document.getElementById('position');
@@ -42,9 +63,11 @@ function handleLogin(e) {
   
   currentUser = { name, position: pos };
   document.getElementById('display-name').textContent = currentUser.name;
-  show('test'); render(); progress();
+  console.log('👤 Сотрудник:', currentUser.name);
   
-  // Скролл к началу теста (фикс для мобильных)
+  show('test'); 
+  render(); 
+  progress();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -52,13 +75,21 @@ function handleLogout() { if(confirm('Выйти без сохранения?'))
 function show(n) { Object.values(screens).forEach(s=>s.classList.remove('active')); screens[n].classList.add('active'); }
 
 function render() {
-  const c = document.getElementById('sections-container'); c.innerHTML='';
-  schema.sections.forEach((sec, i) => {
-    const el = document.createElement('div'); el.className='section'; el.id=`sec-${i}`; el.style.display=i===currentSection?'block':'none';
-    el.innerHTML = `<h3 class="section-title">${sec.title}</h3><p class="section-info">Макс. баллов: ${sec.maxScore}</p>${sec.questions.map(q=>renderQ(q)).join('')}`;
-    c.appendChild(el);
-  });
-  updateNav(); attachEvents();
+  try {
+    const c = document.getElementById('sections-container'); 
+    c.innerHTML = '';
+    if (!schema?.sections) throw new Error('Schema not loaded');
+    
+    schema.sections.forEach((sec, i) => {
+      const el = document.createElement('div'); el.className='section'; el.id=`sec-${i}`; el.style.display=i===currentSection?'block':'none';
+      el.innerHTML = `<h3 class="section-title">${sec.title}</h3><p class="section-info">Макс. баллов: ${sec.maxScore}</p>${sec.questions.map(q=>renderQ(q)).join('')}`;
+      c.appendChild(el);
+    });
+    updateNav(); attachEvents();
+  } catch (err) {
+    console.error('❌ render() error:', err);
+    alert('Ошибка отрисовки теста. Обновите страницу.');
+  }
 }
 
 function renderQ(q) {
@@ -73,6 +104,7 @@ function renderQ(q) {
 
 function attachEvents() {
   const c = document.getElementById('sections-container');
+  if (!c) return;
   c.replaceWith(c.cloneNode(true));
   const nc = document.getElementById('sections-container');
   
@@ -104,25 +136,52 @@ function save() { schema.sections[currentSection].questions.forEach(q => {
   else if(q.type==='text') { const t=document.querySelector(`.question[data-qid="${q.id}"] .answer-input`); if(t?.value.trim()&&!answers[q.id]) answers[q.id]={value:t.value.trim(),timestamp:Date.now()}; }
 }); }
 
-function updateNav() { document.getElementById('prev-btn').disabled=currentSection===0; document.getElementById('next-btn').style.display=currentSection===schema.sections.length-1?'none':'inline-flex'; document.getElementById('submit-btn').style.display=currentSection===schema.sections.length-1?'inline-flex':'none'; }
-function progress() { const tot=schema.sections.reduce((a,s)=>a+s.questions.length,0); const ans=Object.keys(answers).length; const p=Math.round(ans/tot*100); document.getElementById('progress-fill').style.width=`${p}%`; document.getElementById('progress-text').textContent=`${p}%`; }
+function updateNav() { 
+  document.getElementById('prev-btn').disabled = currentSection===0; 
+  document.getElementById('next-btn').style.display = currentSection===schema.sections.length-1 ? 'none' : 'inline-flex'; 
+  document.getElementById('submit-btn').style.display = currentSection===schema.sections.length-1 ? 'inline-flex' : 'none'; 
+}
+function progress() { 
+  const tot = schema.sections.reduce((a,s)=>a+s.questions.length, 0); 
+  const ans = Object.keys(answers).length; 
+  const p = Math.round(ans/tot*100); 
+  document.getElementById('progress-fill').style.width = `${p}%`; 
+  document.getElementById('progress-text').textContent = `${p}%`; 
+}
 
 async function submit() { 
   save(); 
   if(!confirm('Завершить? Изменить нельзя.')) return;
-  const btn=document.getElementById('submit-btn'); btn.disabled=true; btn.textContent='Отправка...';
+  const btn = document.getElementById('submit-btn'); 
+  btn.disabled = true; btn.textContent = 'Отправка...';
   try {
-    const res=await fetch('/api/submit', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userName:currentUser.name, position:currentUser.position, answers})});
-    const data=await res.json(); if(data.success) showResult(data); else throw new Error(data.error);
-  } catch(e) { alert('❌ '+e.message); btn.disabled=false; btn.textContent='✅ Завершить'; }
+    const res = await fetch('/api/submit', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userName:currentUser.name, position:currentUser.position, answers})});
+    const data = await res.json(); 
+    if(data.success) showResult(data); 
+    else throw new Error(data.error);
+  } catch(e) { 
+    console.error('Submit error:', e);
+    alert('❌ '+e.message); 
+    btn.disabled = false; btn.textContent = '✅ Завершить'; 
+  }
 }
 
-function showResult(r) { show('result'); const s=r.score; document.getElementById('score-value').textContent=s.total; document.getElementById('score-max').textContent=s.max;
-  const badge=document.getElementById('result-badge'), msg=document.getElementById('result-message');
-  if(s.percentage>=schema.meta.passingScore) { badge.textContent='✅ Пройдено'; badge.className='badge passed'; msg.textContent=s.percentage>=90?'🌟 Отличный результат!':'Поздравляем! Аттестация пройдена.'; document.getElementById('result-title').textContent='🎉 Аттестация пройдена!'; }
-  else { badge.textContent='📋 На проверке'; badge.className='badge pending'; msg.textContent='Открытые вопросы отправлены аттестатору.'; }
-  const det=document.getElementById('result-details');
-  det.innerHTML=`<h4>📊 Детализация:</h4><div class="result-item ${s.percentage>=70?'correct':'pending'}"><strong>Авто-баллы:</strong> ${s.total} / ${s.max} (${s.percentage}%)</div><div class="result-item"><strong>Дата:</strong> ${new Date().toLocaleDateString('ru-RU')}</div>`;
+function showResult(r) { 
+  show('result'); 
+  const s = r.score; 
+  document.getElementById('score-value').textContent = s.total; 
+  document.getElementById('score-max').textContent = s.max;
+  const badge = document.getElementById('result-badge'), msg = document.getElementById('result-message');
+  if(s.percentage >= schema.meta.passingScore) { 
+    badge.textContent = '✅ Пройдено'; badge.className = 'badge passed'; 
+    msg.textContent = s.percentage >= 90 ? '🌟 Отличный результат!' : 'Поздравляем! Аттестация пройдена.'; 
+    document.getElementById('result-title').textContent = '🎉 Аттестация пройдена!'; 
+  } else { 
+    badge.textContent = '📋 На проверке'; badge.className = 'badge pending'; 
+    msg.textContent = 'Открытые вопросы отправлены аттестатору.'; 
+  }
+  const det = document.getElementById('result-details');
+  det.innerHTML = `<h4>📊 Детализация:</h4><div class="result-item ${s.percentage>=70?'correct':'pending'}"><strong>Авто-баллы:</strong> ${s.total} / ${s.max} (${s.percentage}%)</div><div class="result-item"><strong>Дата:</strong> ${new Date().toLocaleDateString('ru-RU')}</div>`;
 }
 
 function restart() { if(confirm('Начать заново?')) { answers={}; currentSection=0; show('login'); document.getElementById('login-form').reset(); } }
