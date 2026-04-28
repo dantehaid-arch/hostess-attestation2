@@ -35,24 +35,23 @@ function renderQ(q) {
   const cur = answers[q.id]?.value;
   if(q.type==='single') return `<div class="question" data-qid="${q.id}"><p class="question-text">${q.text} <span class="question-points">[${pts}]</span></p><div class="options">${q.options.map(o=>`<label class="option"><input type="radio" name="${q.id}" value="${o.id}" ${cur===o.id?'checked':''}><span>${o.text}</span></label>`).join('')}</div></div>`;
   if(q.type==='multi') return `<div class="question" data-qid="${q.id}"><p class="question-text">${q.text} <span class="question-points">[${pts}]</span></p><div class="options">${q.options.map(o=>`<label class="option checkbox"><input type="checkbox" name="${q.id}" value="${o.id}" ${cur?.includes(o.id)?'checked':''}><span>${o.text}</span></label>`).join('')}</div><p class="hint">* Отметьте все подходящие</p></div>`;
-  if(q.type==='truefalse') return `<div class="question" data-qid="${q.id}"><p class="question-text">${q.text} <span class="question-points">[${pts}]</span></p><div class="tf-options"><button type="button" class="tf-btn ${cur===true?'selected correct':''}" data-v="true">☑ ВЕРНО</button><button type="button" class="tf-btn ${cur===false?'selected incorrect':''}" data-v="false">☑ НЕВЕРНО</button></div>${q.explanation?`<p class="hint">💡 ${q.explanation}</p>`:''}</div>`;
-  if(q.type==='text') return `<div class="question" data-qid="${q.id}"><p class="question-text">${q.text} <span class="question-points">[${pts}]</span></p>${q.situation?`<div class="scenario-box"><strong>СИТУАЦИЯ:</strong><br>${q.situation}</div>`:''}<textarea class="answer-input" placeholder="${q.placeholder||'Ваш ответ...'}">${cur||''}</textarea>${q.criteria?`<div class="criteria-preview"><small>📋 Критерии:</small><ul>${q.criteria.map(c=>`<li>${c.text} (${c.weight}б)</li>`).join('')}</ul></div>`:''}${q.autoCheckKeywords?`<p class="hint">💡 Ключевые слова: ${q.autoCheckKeywords.slice(0,3).join(', ')}...</p>`:''}</div>`;
+  if(q.type==='truefalse') return `<div class="question" data-qid="${q.id}"><p class="question-text">${q.text} <span class="question-points">[${pts}]</span></p><div class="tf-options"><button type="button" class="tf-btn ${cur===true?'selected':''}" data-v="true">☑ ВЕРНО</button><button type="button" class="tf-btn ${cur===false?'selected':''}" data-v="false">☑ НЕВЕРНО</button></div>${q.explanation?`<p class="hint">💡 ${q.explanation}</p>`:''}</div>`;
+  // 🔽 Убран placeholder с примером, убраны подсказки с ключевыми словами
+  if(q.type==='text') return `<div class="question" data-qid="${q.id}"><p class="question-text">${q.text} <span class="question-points">[${pts}]</span></p>${q.situation?`<div class="scenario-box"><strong>СИТУАЦИЯ:</strong><br>${q.situation}</div>`:''}<textarea class="answer-input" placeholder="Введите ваш ответ здесь...">${cur||''}</textarea>${q.criteria?`<div class="criteria-preview"><small>📋 На что обратит внимание аттестатор:</small><ul>${q.criteria.map(c=>`<li>${c.text} (${c.weight}б)</li>`).join('')}</ul></div>`:''}</div>`;
   return '';
 }
 
-// 🔧 Делегирование событий (исправляет баг с кнопками)
 function attachEvents() {
   const c = document.getElementById('sections-container');
   c.replaceWith(c.cloneNode(true));
   const nc = document.getElementById('sections-container');
-  
   nc.addEventListener('click', e => {
     const r = e.target.closest('input[type="radio"]');
     if(r) { answers[r.name]={value:r.value,timestamp:Date.now()}; progress(); return; }
     const cb = e.target.closest('input[type="checkbox"]');
     if(cb) { const q=cb.name; answers[q]={value:Array.from(document.querySelectorAll(`input[name="${q}"]:checked`)).map(c=>c.value),timestamp:Date.now()}; progress(); return; }
     const tf = e.target.closest('.tf-btn');
-    if(tf) { const q=tf.closest('.question').dataset.qid; const v=tf.dataset.v==='true'; tf.closest('.tf-options').querySelectorAll('.tf-btn').forEach(b=>b.classList.remove('selected','correct','incorrect')); tf.classList.add('selected', v?'correct':'incorrect'); answers[q]={value:v,timestamp:Date.now()}; progress(); return; }
+    if(tf) { const q=tf.closest('.question').dataset.qid; const v=tf.dataset.v==='true'; tf.closest('.tf-options').querySelectorAll('.tf-btn').forEach(b=>b.classList.remove('selected')); tf.classList.add('selected'); answers[q]={value:v,timestamp:Date.now()}; progress(); return; }
   });
   nc.addEventListener('input', e => {
     const ta = e.target.closest('.answer-input');
@@ -83,7 +82,7 @@ async function submit() { save(); if(!confirm('Завершить? Измени�
 
 function showResult(r) { show('result'); const s=r.score; document.getElementById('score-value').textContent=s.total; document.getElementById('score-max').textContent=s.max;
   const badge=document.getElementById('result-badge'), msg=document.getElementById('result-message');
-  if(s.percentage>=schema.meta.passingScore) { badge.textContent='✅ Пройдено'; badge.className='badge passed'; msg.textContent=s.percentage>=schema.meta.excellentScore?'🌟 Отличный результат!':'Поздравляем! Аттестация пройдена.'; document.getElementById('result-title').textContent='🎉 Аттестация пройдена!'; }
+  if(s.percentage>=schema.meta.passingScore) { badge.textContent='✅ Пройдено'; badge.className='badge passed'; msg.textContent=s.percentage>=90?'🌟 Отличный результат!':'Поздравляем! Аттестация пройдена.'; document.getElementById('result-title').textContent='🎉 Аттестация пройдена!'; }
   else { badge.textContent='📋 На проверке'; badge.className='badge pending'; msg.textContent='Открытые вопросы отправлены аттестатору.'; }
   const det=document.getElementById('result-details');
   det.innerHTML=`<h4>📊 Детализация:</h4><div class="result-item ${s.percentage>=70?'correct':'pending'}"><strong>Авто-баллы:</strong> ${s.total} / ${s.max} (${s.percentage}%)</div><div class="result-item"><strong>Дата:</strong> ${new Date().toLocaleDateString('ru-RU')}</div>`;
