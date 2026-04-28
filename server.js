@@ -25,14 +25,20 @@ catch (e) { console.error('❌ questions.json не найден'); process.exit(
 const resDir = join(__dirname, 'results');
 if (!existsSync(resDir)) mkdirSync(resDir);
 
-// 📥 Схема (без ответов и ключевых слов)
+// 📥 Безопасная схема для сотрудников
 app.get('/api/schema', (req, res) => {
   const safe = JSON.parse(JSON.stringify(questions));
   safe.sections.forEach(s => s.questions.forEach(q => {
-    delete q.correctAnswer; delete q.autoCheckKeywords;
+    delete q.correctAnswer; delete q.autoCheckKeywords; delete q.explanation;
     if (q.options) q.options = q.options.map(o => { const { correct, ...r } = o; return r; });
   }));
   res.json(safe);
+});
+
+// 🔍 Полная схема для аттестатора (с правильными ответами)
+app.get('/api/schema-full', (req, res) => {
+  if (req.query.pass !== ASSESSOR_PASS) return res.status(401).json({ error: 'Unauthorized' });
+  res.json(questions);
 });
 
 // 🔔 Уведомление в Telegram
@@ -44,7 +50,7 @@ async function notifyAttestator(result) {
                  `💼 *Должность:* ${result.position}\n` +
                  `📊 *Авто-балл:* ${result.autoScore.total}/${result.autoScore.max} (${result.autoScore.percentage}%)\n` +
                  `🆔 *ID:* \`${result.id}\`\n` +
-                 `🔗 *Проверка:* ${process.env.RENDER_EXTERNAL_URL || 'https://ваш-сайт.onrender.com'}/review?pass=${ASSESSOR_PASS}`;
+                 `🔗 *Проверка:* ${process.env.RENDER_EXTERNAL_URL || 'https://ваш-сайт.onrender.com'}/review?pass=${ASSESSOR_PASS}&id=${result.id}`;
     await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: TG_CHAT_ID, text, parse_mode: 'Markdown' })
@@ -67,7 +73,7 @@ app.post('/api/submit', async (req, res) => {
       const c = q.type === 'truefalse' ? q.correctAnswer : q.options?.find(o => o.correct)?.id;
       const ok = u === c;
       if (ok) auto += q.points;
-      details[q.id] = { earned: ok ? q.points : 0, max: q.points, feedback: ok ? '✅ Верно' : (q.explanation || '❌ Неверно') };
+      details[q.id] = { earned: ok ? q.points : 0, max: q.points, feedback: ok ? '✅ Верно' : '❌ Неверно' };
     } else if (q.type === 'multi') {
       max += q.points;
       const ua = Array.isArray(u) ? u : [];
@@ -109,8 +115,7 @@ app.get('/api/result/:id', (req, res) => {
     const r = JSON.parse(readFileSync(path, 'utf-8'));
     r.questionsWithAnswers = questions.sections.flatMap(s => s.questions.map(q => ({
       id: q.id, text: q.text, type: q.type, points: q.points,
-      correctAnswer: q.type === 'truefalse' ? q.correctAnswer : q.options?.find(o => o.correct)?.id,
-      userAnswer: r.answers[q.id]?.value, criteria: q.criteria, autoCheckKeywords: q.autoCheckKeywords
+      userAnswer: r.answers[q.id]?.value, criteria: q.criteria
     })));
     res.json(r);
   } catch { res.status(404).json({ error: 'Not found' }); }
