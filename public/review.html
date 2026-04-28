@@ -51,7 +51,6 @@ async function loadQuestionsDB() {
   } catch(e) { console.warn('Не удалось загрузить полную схему'); }
 }
 
-// 🔍 Сравнение ответа сотрудника с эталоном
 function checkAnswer(userAns, dbQ) {
   if (!dbQ || (userAns === undefined || userAns === '')) return null;
   if (dbQ.type === 'truefalse') return userAns === dbQ.correctAnswer;
@@ -61,7 +60,7 @@ function checkAnswer(userAns, dbQ) {
     const userIds = Array.isArray(userAns) ? userAns : [];
     return correctIds.length === userIds.length && correctIds.every(id => userIds.includes(id));
   }
-  return null; // Текстовые вопросы проверяются вручную
+  return null;
 }
 
 function getStatusBadge(userAns, dbQ) {
@@ -110,18 +109,13 @@ async function load() {
     document.getElementById('q').innerHTML = d.questionsWithAnswers.map(q => {
       const dbQ = QUESTIONS_DB?.sections?.flatMap(s => s.questions).find(x => x.id === q.id);
       const statusHtml = getStatusBadge(q.userAnswer, dbQ);
-      
       return `
       <div class="card">
         <div class="q-header">
           <strong>${q.text}</strong>
-          <div style="display:flex;align-items:center;gap:.5rem">
-            ${statusHtml}
-            <span class="q-points">${q.points}б</span>
-          </div>
+          <div style="display:flex;align-items:center;gap:.5rem">${statusHtml}<span class="q-points">${q.points}б</span></div>
         </div>
-        <em>Ответ сотрудника:</em>
-        <div class="user-answer">${q.userAnswer || '—'}</div>
+        <em>Ответ сотрудника:</em><div class="user-answer">${q.userAnswer || '—'}</div>
         ${getCorrectAnswerHTML(dbQ)}
         ${q.criteria ? `
           <div class="criteria-section">
