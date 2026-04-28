@@ -169,6 +169,30 @@ app.post('/api/review/:id', (req, res) => {
   res.json({ success: true });
 });
 // Запуск сервера
+// Пароль для аттестатора (измените на свой!)
+const ASSESSOR_PASS = process.env.ASSESSOR_PASS || "HostessCheck2024";
+
+// Защищённый маршрут панели аттестатора
+app.get('/review', (req, res) => {
+  const { pass } = req.query;
+  if (pass !== ASSESSOR_PASS) {
+    return res.status(401).type('html').send(`
+      <div style="font-family:Arial;text-align:center;padding:3rem;background:#f9f6ee;border-radius:12px;max-width:400px;margin:2rem auto;">
+        <h2>🔒 Доступ закрыт</h2>
+        <p>Панель аттестатора доступна только по ссылке с паролем.</p>
+        <p><strong>Пример:</strong> <code>/review?pass=${ASSESSOR_PASS}</code></p>
+      </div>
+    `);
+  }
+  res.sendFile(join(__dirname, 'public', 'review.html'));
+});
+
+// Защищаем API проверки результатов
+app.use('/api/review', (req, res, next) => {
+  const { pass } = req.query;
+  if (pass !== ASSESSOR_PASS) return res.status(401).json({ error: 'Unauthorized' });
+  next();
+});
 app.listen(PORT, () => {
   console.log(`🚀 Сервер запущен: http://localhost:${PORT}`);
   console.log(`📋 Тест доступен по адресу: http://localhost:${PORT}`);
