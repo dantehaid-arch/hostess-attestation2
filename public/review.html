@@ -15,10 +15,14 @@ label{display:flex;align-items:center;gap:.5rem;cursor:pointer;padding:.25rem 0}
 .correct-answer.multi{background:#fff8e1;border-left-color:#B8A04A}
 .correct-label{font-weight:600;color:#2E7D32;margin-right:.25rem}
 .keywords-hint{background:#f5f5f5;padding:.4rem .6rem;border-radius:4px;font-size:.85rem;color:#666;margin-top:.3rem}
-.q-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.5rem}
+.q-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.5rem;flex-wrap:wrap;gap:.5rem}
 .q-points{background:#B8A04A;color:white;padding:.2rem .5rem;border-radius:4px;font-size:.85rem;font-weight:500}
 .user-answer{background:#f9f9f9;padding:.6rem;margin:.3rem 0;border-radius:4px;white-space:pre-wrap;line-height:1.4;font-size:.95rem}
 .criteria-section{margin-top:.75rem;padding-top:.75rem;border-top:1px dashed #ddd}
+.badge-status{padding:4px 8px;border-radius:4px;font-weight:600;font-size:.85rem}
+.badge-ok{background:#e8f5e9;color:#2E7D32}
+.badge-fail{background:#ffebee;color:#C0392B}
+.badge-pend{background:#fff8e1;color:#B8A04A}
 </style></head><body>
 <h1>📋 Проверка аттестаций</h1>
 <div id="input-area">
@@ -47,21 +51,41 @@ async function loadQuestionsDB() {
   } catch(e) { console.warn('Не удалось загрузить полную схему'); }
 }
 
-function getCorrectAnswer(q) {
-  if (!q) return null;
-  if (q.type === 'truefalse') return q.correctAnswer === true ? '✅ ВЕРНО' : '✅ НЕВЕРНО';
+// 🔍 Сравнение ответа сотрудника с эталоном
+function checkAnswer(userAns, dbQ) {
+  if (!dbQ || (userAns === undefined || userAns === '')) return null;
+  if (dbQ.type === 'truefalse') return userAns === dbQ.correctAnswer;
+  if (dbQ.type === 'single') return userAns === dbQ.options?.find(o => o.correct)?.id;
+  if (dbQ.type === 'multi') {
+    const correctIds = dbQ.options?.filter(o => o.correct).map(o => o.id) || [];
+    const userIds = Array.isArray(userAns) ? userAns : [];
+    return correctIds.length === userIds.length && correctIds.every(id => userIds.includes(id));
+  }
+  return null; // Текстовые вопросы проверяются вручную
+}
+
+function getStatusBadge(userAns, dbQ) {
+  const res = checkAnswer(userAns, dbQ);
+  if (res === true) return '<span class="badge-status badge-ok">✅ Верно</span>';
+  if (res === false) return '<span class="badge-status badge-fail">❌ Неверно</span>';
+  return '<span class="badge-status badge-pend">📝 Ручная проверка</span>';
+}
+
+function getCorrectAnswerHTML(q) {
+  if (!q) return '';
+  if (q.type === 'truefalse') return `<div class="correct-answer">✅ Правильно: ${q.correctAnswer === true ? 'ВЕРНО' : 'НЕВЕРНО'}</div>`;
   if (q.type === 'single') {
     const opt = q.options?.find(o => o.correct);
-    return opt ? `✅ ${opt.text}` : '—';
+    return opt ? `<div class="correct-answer">✅ ${opt.text}</div>` : '';
   }
   if (q.type === 'multi') {
     const opts = q.options?.filter(o => o.correct).map(o => o.text) || [];
-    return opts.length ? `✅ ${opts.join('; ')}` : '—';
+    return opts.length ? `<div class="correct-answer multi">✅ ${opts.join('; ')}</div>` : '';
   }
   if (q.type === 'text' && q.autoCheckKeywords) {
     return `<div class="keywords-hint">🔑 Ключевые элементы: ${q.autoCheckKeywords.join(', ')}</div>`;
   }
-  return null;
+  return '';
 }
 
 async function load() {
@@ -69,30 +93,36 @@ async function load() {
   if (!id) return alert('Введите ID результата');
   CURRENT_ID = id;
   document.getElementById('rid').value = id;
-  
   document.getElementById('loading').style.display = 'block';
   document.getElementById('area').classList.add('hidden');
-  
+
   try {
     if (!QUESTIONS_DB) await loadQuestionsDB();
     const res = await fetch(`/api/result/${id}?pass=${PASS}`);
     if (!res.ok) throw new Error('Результат не найден');
     const d = await res.json();
-    
+
     document.getElementById('n').textContent = d.userName;
     document.getElementById('p').textContent = d.position;
     document.getElementById('d').textContent = new Date(d.submittedAt).toLocaleString('ru-RU');
     document.getElementById('s').textContent = `${d.autoScore.total}/${d.autoScore.max} (${d.autoScore.percentage}%)`;
-    
+
     document.getElementById('q').innerHTML = d.questionsWithAnswers.map(q => {
       const dbQ = QUESTIONS_DB?.sections?.flatMap(s => s.questions).find(x => x.id === q.id);
-      const correctHtml = getCorrectAnswer(dbQ);
+      const statusHtml = getStatusBadge(q.userAnswer, dbQ);
       
       return `
       <div class="card">
-        <div class="q-header"><strong>${q.text}</strong><span class="q-points">${q.points}б</span></div>
-        <em>Ответ сотрудника:</em><div class="user-answer">${q.userAnswer || '—'}</div>
-        ${correctHtml ? `<div class="correct-answer ${dbQ?.type==='multi'?'multi':''}"><span class="correct-label">Правильный ответ:</span> ${correctHtml}</div>` : ''}
+        <div class="q-header">
+          <strong>${q.text}</strong>
+          <div style="display:flex;align-items:center;gap:.5rem">
+            ${statusHtml}
+            <span class="q-points">${q.points}б</span>
+          </div>
+        </div>
+        <em>Ответ сотрудника:</em>
+        <div class="user-answer">${q.userAnswer || '—'}</div>
+        ${getCorrectAnswerHTML(dbQ)}
         ${q.criteria ? `
           <div class="criteria-section">
             <em>Критерии оценки:</em>
@@ -101,7 +131,7 @@ async function load() {
           </div>` : ''}
       </div>`;
     }).join('');
-    
+
     document.getElementById('area').classList.remove('hidden');
     document.getElementById('input-area').classList.add('hidden');
   } catch (e) { alert('❌ ' + e.message); } finally { document.getElementById('loading').style.display = 'none'; }
