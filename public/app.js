@@ -1,413 +1,91 @@
-// === Глобальные переменные ===
-let schema = null;
-let currentUser = null;
-let answers = {};
-let currentSectionIndex = 0;
-let autoScoreDetails = {}; // { questionId: { earned, max, feedback } }
+let schema = null, currentUser = null, answers = {}, currentSection = 0;
+const screens = { login: document.getElementById('login-screen'), test: document.getElementById('test-screen'), result: document.getElementById('result-screen') };
 
-// === DOM элементы ===
-const screens = {
-  login: document.getElementById('login-screen'),
-  test: document.getElementById('test-screen'),
-  result: document.getElementById('result-screen')
-};
-
-// === ИНИЦИАЛИЗАЦИЯ ===
 document.addEventListener('DOMContentLoaded', async () => {
-  try {
-    const response = await fetch('/api/schema');
-    schema = await response.json();
-    document.title = schema.meta.title;
-  } catch (err) {
-    alert('❌ Не удалось загрузить тест. Проверьте соединение.');
-    console.error(err);
-  }
-  
-  // Обработчики
+  try { schema = await (await fetch('/api/schema')).json(); document.title = schema.meta.title; } 
+  catch (err) { alert('❌ Ошибка загрузки теста'); console.error(err); }
   document.getElementById('login-form').addEventListener('submit', handleLogin);
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
-  document.getElementById('prev-btn').addEventListener('click', () => navigateSection(-1));
-  document.getElementById('next-btn').addEventListener('click', () => navigateSection(1));
-  document.getElementById('submit-btn').addEventListener('click', handleSubmit);
-  document.getElementById('restart-btn').addEventListener('click', handleRestart);
+  document.getElementById('prev-btn').addEventListener('click', () => nav(-1));
+  document.getElementById('next-btn').addEventListener('click', () => nav(1));
+  document.getElementById('submit-btn').addEventListener('click', submit);
+  document.getElementById('restart-btn').addEventListener('click', restart);
 });
 
-// === ВХОД ===
 function handleLogin(e) {
   e.preventDefault();
-  currentUser = {
-    name: document.getElementById('userName').value.trim(),
-    position: document.getElementById('position').value.trim()
-  };
-  if (!currentUser.name || !currentUser.position) {
-    alert('Заполните все поля');
-    return;
-  }
+  currentUser = { name: document.getElementById('userName').value.trim(), position: document.getElementById('position').value.trim() };
+  if (!currentUser.name || !currentUser.position) return alert('Заполните все поля');
   document.getElementById('display-name').textContent = currentUser.name;
-  showScreen('test');
-  renderTest();
-  updateProgress();
+  show('test'); render(); progress();
 }
-
-function handleLogout() {
-  if (confirm('Завершить тест без сохранения?')) {
-    currentUser = null;
-    answers = {};
-    autoScoreDetails = {};
-    currentSectionIndex = 0;
-    showScreen('login');
-  }
-}
-
-// === НАВИГАЦИЯ ===
-function showScreen(name) {
-  Object.values(screens).forEach(s => s.classList.remove('active'));
-  screens[name].classList.add('active');
-}
-
-function renderTest() {
-  const container = document.getElementById('sections-container');
-  container.innerHTML = '';
-  
-  schema.sections.forEach((section, sIdx) => {
-    const sectionEl = document.createElement('div');
-    sectionEl.className = 'section';
-    sectionEl.id = `section-${sIdx}`;
-    sectionEl.style.display = sIdx === currentSectionIndex ? 'block' : 'none';
-    
-    sectionEl.innerHTML = `
-      <h3 class="section-title">${section.title}</h3>
-      <p class="section-info">Макс. баллов: ${section.maxScore}</p>
-      ${section.questions.map(q => renderQuestion(q)).join('')}
-    `;
-    container.appendChild(sectionEl);
+function handleLogout() { if(confirm('Выйти без сохранения?')) { currentUser=null; answers={}; currentSection=0; show('login'); } }
+function show(n) { Object.values(screens).forEach(s=>s.classList.remove('active')); screens[n].classList.add('active'); }
+function render() {
+  const c = document.getElementById('sections-container'); c.innerHTML='';
+  schema.sections.forEach((sec, i) => {
+    const el = document.createElement('div'); el.className='section'; el.id=`sec-${i}`; el.style.display=i===currentSection?'block':'none';
+    el.innerHTML = `<h3 class="section-title">${sec.title}</h3><p class="section-info">Макс. баллов: ${sec.maxScore}</p>${sec.questions.map(q=>renderQ(q)).join('')}`;
+    c.appendChild(el);
   });
-  
-  updateNavigation();
-  attachEventListeners();
+  updateNav(); attachEvents();
+}
+function renderQ(q) {
+  const pts = `${q.points} ${q.points===1?'балл':q.points<5?'балла':'баллов'}`;
+  const cur = answers[q.id]?.value;
+  if(q.type==='single') return `<div class="question" data-qid="${q.id}"><p class="question-text">${q.text} <span class="question-points">[${pts}]</span></p><div class="options">${q.options.map(o=>`<label class="option"><input type="radio" name="${q.id}" value="${o.id}" ${cur===o.id?'checked':''}><span>${o.text}</span></label>`).join('')}</div></div>`;
+  if(q.type==='multi') return `<div class="question" data-qid="${q.id}"><p class="question-text">${q.text} <span class="question-points">[${pts}]</span></p><div class="options">${q.options.map(o=>`<label class="option checkbox"><input type="checkbox" name="${q.id}" value="${o.id}" ${cur?.includes(o.id)?'checked':''}><span>${o.text}</span></label>`).join('')}</div><p class="hint">* Отметьте все подходящие</p></div>`;
+  if(q.type==='truefalse') return `<div class="question" data-qid="${q.id}"><p class="question-text">${q.text} <span class="question-points">[${pts}]</span></p><div class="tf-options"><button type="button" class="tf-btn ${cur===true?'selected correct':''}" data-v="true">☑ ВЕРНО</button><button type="button" class="tf-btn ${cur===false?'selected incorrect':''}" data-v="false">☑ НЕВЕРНО</button></div>${q.explanation?`<p class="hint">💡 ${q.explanation}</p>`:''}</div>`;
+  if(q.type==='text') return `<div class="question" data-qid="${q.id}"><p class="question-text">${q.text} <span class="question-points">[${pts}]</span></p>${q.situation?`<div class="scenario-box"><strong>СИТУАЦИЯ:</strong><br>${q.situation}</div>`:''}<textarea class="answer-input" placeholder="${q.placeholder||'Ваш ответ...'}">${cur||''}</textarea>${q.criteria?`<div class="criteria-preview"><small>📋 Критерии:</small><ul>${q.criteria.map(c=>`<li>${c.text} (${c.weight}б)</li>`).join('')}</ul></div>`:''}${q.autoCheckKeywords?`<p class="hint">💡 Ключевые слова: ${q.autoCheckKeywords.slice(0,3).join(', ')}...</p>`:''}</div>`;
+  return '';
 }
 
-function renderQuestion(q) {
-  const pointsText = `${q.points} ${q.points === 1 ? 'балл' : q.points < 5 ? 'балла' : 'баллов'}`;
-  const currentValue = answers[q.id]?.value;
+// 🔧 Делегирование событий (исправляет баг с кнопками)
+function attachEvents() {
+  const c = document.getElementById('sections-container');
+  c.replaceWith(c.cloneNode(true));
+  const nc = document.getElementById('sections-container');
   
-  switch (q.type) {
-    case 'single':
-      return `
-        <div class="question" data-qid="${q.id}">
-          <p class="question-text">${q.text} <span class="question-points">[${pointsText}]</span></p>
-          <div class="options">
-            ${q.options.map(opt => `
-              <label class="option">
-                <input type="radio" name="${q.id}" value="${opt.id}" ${currentValue === opt.id ? 'checked' : ''}>
-                <span>${opt.text}</span>
-              </label>
-            `).join('')}
-          </div>
-        </div>
-      `;
-      
-    case 'multi':
-      const checkedValues = currentValue || [];
-      return `
-        <div class="question" data-qid="${q.id}">
-          <p class="question-text">${q.text} <span class="question-points">[${pointsText}]</span></p>
-          <div class="options">
-            ${q.options.map(opt => `
-              <label class="option checkbox">
-                <input type="checkbox" name="${q.id}" value="${opt.id}" ${checkedValues.includes(opt.id) ? 'checked' : ''}>
-                <span>${opt.text}</span>
-              </label>
-            `).join('')}
-          </div>
-          <p class="hint">* Отметьте все подходящие варианты</p>
-        </div>
-      `;
-      
-    case 'truefalse':
-      return `
-        <div class="question" data-qid="${q.id}">
-          <p class="question-text">${q.text} <span class="question-points">[${pointsText}]</span></p>
-          <div class="tf-options">
-            <button type="button" class="tf-btn ${currentValue === true ? 'selected correct' : ''}" data-value="true">☑ ВЕРНО</button>
-            <button type="button" class="tf-btn ${currentValue === false ? 'selected incorrect' : ''}" data-value="false">☑ НЕВЕРНО</button>
-          </div>
-          ${q.explanation ? `<p class="hint" style="margin-top:0.5rem;color:#666;font-size:0.9rem">💡 ${q.explanation}</p>` : ''}
-        </div>
-      `;
-      
-    case 'text':
-      return `
-        <div class="question" data-qid="${q.id}">
-          <p class="question-text">${q.text} <span class="question-points">[${pointsText}]</span></p>
-          ${q.subtype === 'scenario' || q.subtype === 'case' ? `<div class="scenario-box"><strong>СИТУАЦИЯ:</strong><br>${q.situation}</div>` : ''}
-          <textarea class="answer-input" placeholder="${q.placeholder || 'Ваш ответ...'}">${currentValue || ''}</textarea>
-          ${q.evaluationCriteria ? `
-            <div class="criteria-preview">
-              <small>📋 На что обратит внимание аттестатор:</small>
-              <ul>${q.evaluationCriteria.map(c => `<li>${c}</li>`).join('')}</ul>
-            </div>
-          ` : ''}
-          ${q.autoCheckKeywords ? `<p class="hint">💡 Подсказка: в ответе должны быть слова: ${q.autoCheckKeywords.slice(0,3).join(', ')}...</p>` : ''}
-        </div>
-      `;
-      
-    default:
-      return '';
-  }
-}
-
-// === ОБРАБОТЧИКИ СОБЫТИЙ ===
-function attachEventListeners() {
-  // Radio
-  document.querySelectorAll('input[type="radio"]').forEach(input => {
-    input.addEventListener('change', (e) => {
-      const qid = e.target.name;
-      answers[qid] = { value: e.target.value, timestamp: Date.now() };
-      updateProgress();
-    });
+  nc.addEventListener('click', e => {
+    const r = e.target.closest('input[type="radio"]');
+    if(r) { answers[r.name]={value:r.value,timestamp:Date.now()}; progress(); return; }
+    const cb = e.target.closest('input[type="checkbox"]');
+    if(cb) { const q=cb.name; answers[q]={value:Array.from(document.querySelectorAll(`input[name="${q}"]:checked`)).map(c=>c.value),timestamp:Date.now()}; progress(); return; }
+    const tf = e.target.closest('.tf-btn');
+    if(tf) { const q=tf.closest('.question').dataset.qid; const v=tf.dataset.v==='true'; tf.closest('.tf-options').querySelectorAll('.tf-btn').forEach(b=>b.classList.remove('selected','correct','incorrect')); tf.classList.add('selected', v?'correct':'incorrect'); answers[q]={value:v,timestamp:Date.now()}; progress(); return; }
   });
-  
-  // Checkbox
-  document.querySelectorAll('input[type="checkbox"]').forEach(input => {
-    input.addEventListener('change', (e) => {
-      const qid = e.target.name;
-      const checked = document.querySelectorAll(`input[name="${qid}"]:checked`);
-      answers[qid] = { 
-        value: Array.from(checked).map(c => c.value), 
-        timestamp: Date.now() 
-      };
-      updateProgress();
-    });
-  });
-  
-  // True/False
-  document.querySelectorAll('.tf-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const questionEl = e.target.closest('.question');
-      const qid = questionEl.dataset.qid;
-      const value = e.target.dataset.value === 'true';
-      questionEl.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('selected'));
-      e.target.classList.add('selected');
-      answers[qid] = { value, timestamp: Date.now() };
-      updateProgress();
-    });
-  });
-  
-  // Textarea
-  document.querySelectorAll('.answer-input').forEach(textarea => {
-    textarea.addEventListener('input', (e) => {
-      const qid = e.target.closest('.question').dataset.qid;
-      answers[qid] = { value: e.target.value, timestamp: Date.now() };
-      updateProgress();
-    });
+  nc.addEventListener('input', e => {
+    const ta = e.target.closest('.answer-input');
+    if(ta) { answers[ta.closest('.question').dataset.qid]={value:ta.value.trim(),timestamp:Date.now()}; progress(); }
   });
 }
 
-function navigateSection(direction) {
-  saveCurrentSectionAnswers();
-  const newIndex = currentSectionIndex + direction;
-  if (newIndex < 0 || newIndex >= schema.sections.length) return;
-  document.getElementById(`section-${currentSectionIndex}`).style.display = 'none';
-  currentSectionIndex = newIndex;
-  document.getElementById(`section-${currentSectionIndex}`).style.display = 'block';
-  updateNavigation();
-  updateProgress();
+function nav(dir) { save(); currentSection+=dir; if(currentSection<0||currentSection>=schema.sections.length) { currentSection-=dir; return; }
+  document.getElementById(`sec-${currentSection-dir}`).style.display='none';
+  document.getElementById(`sec-${currentSection}`).style.display='block';
+  updateNav(); progress();
 }
+function save() { schema.sections[currentSection].questions.forEach(q => {
+  if(q.type==='single') { const s=document.querySelector(`input[name="${q.id}"]:checked`); if(s&&!answers[q.id]) answers[q.id]={value:s.value,timestamp:Date.now()}; }
+  else if(q.type==='multi') { const c=document.querySelectorAll(`input[name="${q.id}"]:checked`); if(c.length&&!answers[q.id]) answers[q.id]={value:Array.from(c).map(x=>x.value),timestamp:Date.now()}; }
+  else if(q.type==='text') { const t=document.querySelector(`.question[data-qid="${q.id}"] .answer-input`); if(t?.value.trim()&&!answers[q.id]) answers[q.id]={value:t.value.trim(),timestamp:Date.now()}; }
+}); }
+function updateNav() { document.getElementById('prev-btn').disabled=currentSection===0; document.getElementById('next-btn').style.display=currentSection===schema.sections.length-1?'none':'inline-block'; document.getElementById('submit-btn').style.display=currentSection===schema.sections.length-1?'inline-block':'none'; }
+function progress() { const tot=schema.sections.reduce((a,s)=>a+s.questions.length,0); const ans=Object.keys(answers).length; const p=Math.round(ans/tot*100); document.getElementById('progress-fill').style.width=`${p}%`; document.getElementById('progress-text').textContent=`${p}%`; }
 
-function saveCurrentSectionAnswers() {
-  const currentSection = schema.sections[currentSectionIndex];
-  currentSection.questions.forEach(q => {
-    if (q.type === 'single') {
-      const selected = document.querySelector(`input[name="${q.id}"]:checked`);
-      if (selected && !answers[q.id]) {
-        answers[q.id] = { value: selected.value, timestamp: Date.now() };
-      }
-    } else if (q.type === 'multi') {
-      const checked = document.querySelectorAll(`input[name="${q.id}"]:checked`);
-      if (checked.length > 0 && !answers[q.id]) {
-        answers[q.id] = { value: Array.from(checked).map(c => c.value), timestamp: Date.now() };
-      }
-    } else if (q.type === 'text') {
-      const textarea = document.querySelector(`.question[data-qid="${q.id}"] .answer-input`);
-      if (textarea?.value.trim() && !answers[q.id]) {
-        answers[q.id] = { value: textarea.value.trim(), timestamp: Date.now() };
-      }
-    }
-  });
-}
-
-function updateNavigation() {
-  const prevBtn = document.getElementById('prev-btn');
-  const nextBtn = document.getElementById('next-btn');
-  const submitBtn = document.getElementById('submit-btn');
-  prevBtn.disabled = currentSectionIndex === 0;
-  if (currentSectionIndex === schema.sections.length - 1) {
-    nextBtn.style.display = 'none';
-    submitBtn.style.display = 'inline-block';
-  } else {
-    nextBtn.style.display = 'inline-block';
-    submitBtn.style.display = 'none';
-  }
-}
-
-function updateProgress() {
-  const totalQuestions = schema.sections.reduce((sum, s) => sum + s.questions.length, 0);
-  const answeredQuestions = Object.keys(answers).length;
-  const percent = Math.round(answeredQuestions / totalQuestions * 100);
-  document.getElementById('progress-fill').style.width = `${percent}%`;
-  document.getElementById('progress-text').textContent = `${percent}%`;
-}
-
-// === АВТО-ПРОВЕРКА ТЕКСТОВЫХ ОТВЕТОВ ===
-function checkTextAnswer(question, userAnswer) {
-  if (!question.autoCheckKeywords || !userAnswer) return null;
-  
-  const answerLower = userAnswer.toLowerCase();
-  const matched = question.autoCheckKeywords.filter(kw => answerLower.includes(kw.toLowerCase()));
-  const matchRatio = matched.length / question.autoCheckKeywords.length;
-  
-  if (matchRatio >= 0.6) {
-    return { earned: question.points, feedback: '✅ Ключевые элементы присутствуют' };
-  } else if (matchRatio >= 0.3) {
-    return { earned: Math.round(question.points * 0.5), feedback: '⚠️ Частично соответствует: не все ключевые элементы' };
-  } else {
-    return { earned: 0, feedback: '❌ Не хватает ключевых элементов стандарта' };
-  }
-}
-
-// === ОТПРАВКА И ПОДСЧЁТ ===
-async function handleSubmit() {
-  saveCurrentSectionAnswers();
-  if (!confirm('Завершить аттестацию? Изменить ответы будет нельзя.')) return;
-  
-  const submitBtn = document.getElementById('submit-btn');
-  submitBtn.disabled = true;
-  submitBtn.textContent = 'Отправка...';
-  
-  // Подсчёт авто-баллов
-  let autoScore = 0, maxAutoScore = 0;
-  autoScoreDetails = {};
-  
-  schema.sections.forEach(section => {
-    section.questions.forEach(q => {
-      if (['single', 'truefalse'].includes(q.type)) {
-        maxAutoScore += q.points;
-        const userAnswer = answers[q.id]?.value;
-        const correct = q.type === 'truefalse' ? q.correctAnswer : q.options?.find(o => o.correct)?.id;
-        if (userAnswer === correct) {
-          autoScore += q.points;
-          autoScoreDetails[q.id] = { earned: q.points, max: q.points, feedback: '✅ Верно' };
-        } else {
-          autoScoreDetails[q.id] = { earned: 0, max: q.points, feedback: q.explanation ? `❌ ${q.explanation}` : '❌ Неверно' };
-        }
-      } else if (q.type === 'multi') {
-        maxAutoScore += q.points;
-        const userAnswers = answers[q.id]?.value || [];
-        const correctAnswers = q.options?.filter(o => o.correct).map(o => o.id) || [];
-        const isFullyCorrect = userAnswers.length === correctAnswers.length && userAnswers.every(a => correctAnswers.includes(a));
-        if (isFullyCorrect) {
-          autoScore += q.points;
-          autoScoreDetails[q.id] = { earned: q.points, max: q.points, feedback: '✅ Все варианты верны' };
-        } else {
-          const partial = userAnswers.filter(a => correctAnswers.includes(a)).length;
-          const earned = Math.round(q.points * partial / correctAnswers.length);
-          autoScore += earned;
-          autoScoreDetails[q.id] = { earned, max: q.points, feedback: `⚠️ Верно ${partial} из ${correctAnswers.length}` };
-        }
-      } else if (q.type === 'text' && q.autoCheckKeywords) {
-        maxAutoScore += q.points;
-        const result = checkTextAnswer(q, answers[q.id]?.value);
-        if (result) {
-          autoScore += result.earned;
-          autoScoreDetails[q.id] = { ...result, max: q.points };
-        }
-      }
-    });
-  });
-  
+async function submit() { save(); if(!confirm('Завершить? Изменить нельзя.')) return;
+  const btn=document.getElementById('submit-btn'); btn.disabled=true; btn.textContent='Отправка...';
   try {
-    const response = await fetch('/api/submit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userName: currentUser.name,
-        position: currentUser.position,
-        answers,
-        autoScoreDetails
-      })
-    });
-    const result = await response.json();
-    if (result.success) {
-      showResult(result, autoScore, maxAutoScore);
-    } else {
-      throw new Error(result.error || 'Ошибка отправки');
-    }
-  } catch (err) {
-    console.error(err);
-    alert('❌ Не удалось отправить результаты. Попробуйте ещё раз.');
-    submitBtn.disabled = false;
-    submitBtn.textContent = '✅ Завершить';
-  }
+    const res=await fetch('/api/submit', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userName:currentUser.name, position:currentUser.position, answers})});
+    const data=await res.json(); if(data.success) showResult(data); else throw new Error(data.error);
+  } catch(e) { alert('❌ '+e.message); btn.disabled=false; btn.textContent='✅ Завершить'; }
 }
 
-function showResult(apiResult, autoScore, maxAutoScore) {
-  showScreen('result');
-  const percentage = maxAutoScore > 0 ? Math.round(autoScore / maxAutoScore * 100) : 0;
-  
-  document.getElementById('score-value').textContent = autoScore;
-  document.getElementById('score-max').textContent = maxAutoScore;
-  
-  const badge = document.getElementById('result-badge');
-  const message = document.getElementById('result-message');
-  
-  if (percentage >= schema.meta.passingScore) {
-    badge.textContent = '✅ Пройдено';
-    badge.className = 'badge passed';
-    message.textContent = percentage >= schema.meta.excellentScore 
-      ? '🌟 Отличный результат! Вы глубоко знаете стандарт.' 
-      : 'Поздравляем! Вы успешно прошли аттестацию.';
-    document.getElementById('result-title').textContent = '🎉 Аттестация пройдена!';
-  } else {
-    badge.textContent = '📋 На проверке';
-    badge.className = 'badge pending';
-    message.textContent = 'Открытые вопросы отправлены аттестатору. Ожидайте обратной связи.';
-  }
-  
-  // Детализация
-  const detailsEl = document.getElementById('result-details');
-  const textQuestions = Object.entries(answers).filter(([qid]) => {
-    const q = schema.sections.flatMap(s => s.questions).find(q => q.id === qid);
-    return q?.type === 'text' && !q.autoCheckKeywords;
-  });
-  
-  detailsEl.innerHTML = `
-    <h4>📊 Детализация:</h4>
-    <div class="result-item ${autoScore >= schema.meta.passingScore ? 'correct' : 'pending'}">
-      <strong>Автоматические вопросы:</strong> ${autoScore} / ${maxAutoScore} баллов (${percentage}%)
-    </div>
-    <div class="result-item pending">
-      <strong>Открытые вопросы на ручной проверке:</strong> ${textQuestions.length}
-    </div>
-    <div class="result-item">
-      <strong>Дата:</strong> ${new Date().toLocaleDateString('ru-RU')}
-    </div>
-    ${Object.entries(autoScoreDetails).slice(0, 5).map(([qid, detail]) => {
-      const q = schema.sections.flatMap(s => s.questions).find(q => q.id === qid);
-      return `<div class="result-item ${detail.earned === detail.max ? 'correct' : detail.earned > 0 ? 'pending' : 'incorrect'}">
-        <strong>${q?.text?.slice(0, 60)}${q?.text?.length > 60 ? '...' : ''}</strong><br>
-        ${detail.feedback} (${detail.earned}/${detail.max})
-      </div>`;
-    }).join('')}
-  `;
+function showResult(r) { show('result'); const s=r.score; document.getElementById('score-value').textContent=s.total; document.getElementById('score-max').textContent=s.max;
+  const badge=document.getElementById('result-badge'), msg=document.getElementById('result-message');
+  if(s.percentage>=schema.meta.passingScore) { badge.textContent='✅ Пройдено'; badge.className='badge passed'; msg.textContent=s.percentage>=schema.meta.excellentScore?'🌟 Отличный результат!':'Поздравляем! Аттестация пройдена.'; document.getElementById('result-title').textContent='🎉 Аттестация пройдена!'; }
+  else { badge.textContent='📋 На проверке'; badge.className='badge pending'; msg.textContent='Открытые вопросы отправлены аттестатору.'; }
+  const det=document.getElementById('result-details');
+  det.innerHTML=`<h4>📊 Детализация:</h4><div class="result-item ${s.percentage>=70?'correct':'pending'}"><strong>Авто-баллы:</strong> ${s.total} / ${s.max} (${s.percentage}%)</div><div class="result-item"><strong>Дата:</strong> ${new Date().toLocaleDateString('ru-RU')}</div>`;
 }
-
-function handleRestart() {
-  if (confirm('Начать аттестацию заново? Текущие ответы будут удалены.')) {
-    answers = {};
-    autoScoreDetails = {};
-    currentSectionIndex = 0;
-    showScreen('login');
-    document.getElementById('login-form').reset();
-  }
-}
+function restart() { if(confirm('Начать заново?')) { answers={}; currentSection=0; show('login'); document.getElementById('login-form').reset(); } }
