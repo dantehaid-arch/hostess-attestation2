@@ -1,10 +1,30 @@
 <!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Панель аттестатора</title>
-<style>body{font-family:Arial,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem;background:#f8f9fa}.card{background:#fff;border:1px solid #ddd;border-radius:8px;padding:1rem;margin-bottom:1rem;box-shadow:0 1px 3px rgba(0,0,0,0.05)}.score{font-size:1.5rem;font-weight:bold;color:#B8A04A}textarea{width:100%;min-height:60px;margin:.5rem 0;padding:.5rem;border:1px solid #ccc;border-radius:4px;font-family:inherit}button{background:#B8A04A;color:white;border:none;padding:.6rem 1rem;border-radius:6px;cursor:pointer;font-weight:500;transition:opacity .2s}button:hover{opacity:.85}.chk{margin:.25rem 0}label{display:flex;align-items:center;gap:.5rem;cursor:pointer;padding:.25rem 0}#input-area{background:#fff;padding:1rem;border-radius:8px;border:1px solid #ddd;display:flex;align-items:center;gap:.5rem;margin-bottom:1rem}#loading{display:none;text-align:center;padding:2rem;color:#666;font-size:1.1rem}.hidden{display:none!important}</style></head><body>
+<style>
+body{font-family:Arial,sans-serif;max-width:950px;margin:2rem auto;padding:0 1rem;background:#f8f9fa;color:#1a1a1a}
+.card{background:#fff;border:1px solid #ddd;border-radius:8px;padding:1rem;margin-bottom:1rem;box-shadow:0 1px 3px rgba(0,0,0,0.05)}
+.score{font-size:1.5rem;font-weight:bold;color:#B8A04A}
+textarea{width:100%;min-height:60px;margin:.5rem 0;padding:.5rem;border:1px solid #ccc;border-radius:4px;font-family:inherit;font-size:.95rem}
+button{background:#B8A04A;color:white;border:none;padding:.6rem 1rem;border-radius:6px;cursor:pointer;font-weight:500;transition:opacity .2s}
+button:hover{opacity:.85}
+.chk{margin:.25rem 0}
+label{display:flex;align-items:center;gap:.5rem;cursor:pointer;padding:.25rem 0}
+#input-area{background:#fff;padding:1rem;border-radius:8px;border:1px solid #ddd;display:flex;align-items:center;gap:.5rem;margin-bottom:1rem}
+#loading{display:none;text-align:center;padding:2rem;color:#666;font-size:1.1rem}
+.hidden{display:none!important}
+.correct-answer{background:#f0f9f0;border-left:4px solid #2E7D32;padding:.5rem .75rem;margin:.5rem 0;border-radius:0 4px 4px 0;font-size:.9rem}
+.correct-answer.multi{background:#fff8e1;border-left-color:#B8A04A}
+.correct-label{font-weight:600;color:#2E7D32;margin-right:.25rem}
+.keywords-hint{background:#f5f5f5;padding:.4rem .6rem;border-radius:4px;font-size:.85rem;color:#666;margin-top:.3rem}
+.q-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.5rem}
+.q-points{background:#B8A04A;color:white;padding:.2rem .5rem;border-radius:4px;font-size:.85rem;font-weight:500}
+.user-answer{background:#f9f9f9;padding:.6rem;margin:.3rem 0;border-radius:4px;white-space:pre-wrap;line-height:1.4;font-size:.95rem}
+.criteria-section{margin-top:.75rem;padding-top:.75rem;border-top:1px dashed #ddd}
+</style></head><body>
 <h1>📋 Проверка аттестаций</h1>
 <div id="input-area">
   <input type="text" id="rid" placeholder="ID результата" style="flex:1;padding:.5rem;border:1px solid #ccc;border-radius:4px">
   <button onclick="load()">🔍 Загрузить</button>
-  <button onclick="location.reload()" class="btn-secondary" style="background:#e0e0e0;color:#333">🔄 Сброс</button>
+  <button onclick="location.reload()" style="background:#e0e0e0;color:#333">🔄 Сброс</button>
 </div>
 <div id="loading">⏳ Загрузка результатов...</div>
 <div id="area" class="hidden">
@@ -14,11 +34,35 @@
 </div>
 
 <script>
-// 🔑 Берём пароль и ID из URL
 const params = new URLSearchParams(window.location.search);
 const PASS = params.get('pass') || '123123';
 const AUTO_ID = params.get('id');
 let CURRENT_ID = '';
+let QUESTIONS_DB = null;
+
+async function loadQuestionsDB() {
+  try {
+    const res = await fetch(`/api/schema-full?pass=${PASS}`);
+    if (res.ok) QUESTIONS_DB = await res.json();
+  } catch(e) { console.warn('Не удалось загрузить полную схему'); }
+}
+
+function getCorrectAnswer(q) {
+  if (!q) return null;
+  if (q.type === 'truefalse') return q.correctAnswer === true ? '✅ ВЕРНО' : '✅ НЕВЕРНО';
+  if (q.type === 'single') {
+    const opt = q.options?.find(o => o.correct);
+    return opt ? `✅ ${opt.text}` : '—';
+  }
+  if (q.type === 'multi') {
+    const opts = q.options?.filter(o => o.correct).map(o => o.text) || [];
+    return opts.length ? `✅ ${opts.join('; ')}` : '—';
+  }
+  if (q.type === 'text' && q.autoCheckKeywords) {
+    return `<div class="keywords-hint">🔑 Ключевые элементы: ${q.autoCheckKeywords.join(', ')}</div>`;
+  }
+  return null;
+}
 
 async function load() {
   const id = AUTO_ID || document.getElementById('rid').value.trim();
@@ -30,6 +74,7 @@ async function load() {
   document.getElementById('area').classList.add('hidden');
   
   try {
+    if (!QUESTIONS_DB) await loadQuestionsDB();
     const res = await fetch(`/api/result/${id}?pass=${PASS}`);
     if (!res.ok) throw new Error('Результат не найден');
     const d = await res.json();
@@ -39,52 +84,43 @@ async function load() {
     document.getElementById('d').textContent = new Date(d.submittedAt).toLocaleString('ru-RU');
     document.getElementById('s').textContent = `${d.autoScore.total}/${d.autoScore.max} (${d.autoScore.percentage}%)`;
     
-    document.getElementById('q').innerHTML = d.questionsWithAnswers.map(q => `
+    document.getElementById('q').innerHTML = d.questionsWithAnswers.map(q => {
+      const dbQ = QUESTIONS_DB?.sections?.flatMap(s => s.questions).find(x => x.id === q.id);
+      const correctHtml = getCorrectAnswer(dbQ);
+      
+      return `
       <div class="card">
-        <strong>${q.text}</strong> <span style="color:#888">[${q.points}б]</span><br>
-        <em>Ответ сотрудника:</em>
-        <div style="background:#f9f9f9;padding:.6rem;margin:.5rem 0;border-radius:4px;white-space:pre-wrap;line-height:1.4">${q.userAnswer || '—'}</div>
+        <div class="q-header"><strong>${q.text}</strong><span class="q-points">${q.points}б</span></div>
+        <em>Ответ сотрудника:</em><div class="user-answer">${q.userAnswer || '—'}</div>
+        ${correctHtml ? `<div class="correct-answer ${dbQ?.type==='multi'?'multi':''}"><span class="correct-label">Правильный ответ:</span> ${correctHtml}</div>` : ''}
         ${q.criteria ? `
-          <em>Критерии оценки:</em>
-          <div class="chk">
-            ${q.criteria.map(c => `<label><input type="checkbox" data-cid="${c.id}" data-w="${c.weight}"> ${c.text} <small style="color:#666">(${c.weight}б)</small></label>`).join('')}
-          </div>
-          <textarea placeholder="Комментарий аттестатора..." id="c-${q.id}"></textarea>
-        ` : ''}
-      </div>
-    `).join('');
+          <div class="criteria-section">
+            <em>Критерии оценки:</em>
+            <div class="chk">${q.criteria.map(c => `<label><input type="checkbox" data-cid="${c.id}" data-w="${c.weight}"> ${c.text} <small style="color:#666">(${c.weight}б)</small></label>`).join('')}</div>
+            <textarea placeholder="Комментарий аттестатора..." id="c-${q.id}"></textarea>
+          </div>` : ''}
+      </div>`;
+    }).join('');
     
     document.getElementById('area').classList.remove('hidden');
     document.getElementById('input-area').classList.add('hidden');
-  } catch (e) {
-    alert('❌ ' + e.message);
-  } finally {
-    document.getElementById('loading').style.display = 'none';
-  }
+  } catch (e) { alert('❌ ' + e.message); } finally { document.getElementById('loading').style.display = 'none'; }
 }
 
 async function save() {
   if (!CURRENT_ID) return alert('ID не найден');
-  
   const cs = {}, cm = {};
   document.querySelectorAll('input:checked').forEach(x => cs[x.dataset.cid] = parseFloat(x.dataset.w));
   document.querySelectorAll('textarea').forEach(t => { if (t.value.trim()) cm[t.id.replace('c-', '')] = t.value.trim(); });
-  
   try {
     const res = await fetch(`/api/review/${CURRENT_ID}?pass=${PASS}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-assessor-pass': PASS },
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-assessor-pass': PASS },
       body: JSON.stringify({ criteriaScores: cs, comments: cm })
     });
     if (!res.ok) throw new Error('Ошибка сервера');
     alert('✅ Оценка успешно сохранена');
-  } catch (e) {
-    alert('❌ Ошибка сохранения: ' + e.message);
-  }
+  } catch (e) { alert('❌ Ошибка сохранения: ' + e.message); }
 }
 
-// 🚀 Автозагрузка при открытии ссылки с ?id=
-window.addEventListener('DOMContentLoaded', () => {
-  if (AUTO_ID) load();
-});
+window.addEventListener('DOMContentLoaded', () => { if (AUTO_ID) load(); });
 </script></body></html>
