@@ -10,6 +10,8 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ASSESSOR_PASS = process.env.ASSESSOR_PASS || "123123";
+const TG_TOKEN = process.env.TG_TOKEN || '';
+const TG_CHAT_ID = process.env.TG_CHAT_ID || '';
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -23,6 +25,7 @@ catch (e) { console.error('❌ questions.json не найден'); process.exit(
 const resDir = join(__dirname, 'results');
 if (!existsSync(resDir)) mkdirSync(resDir);
 
+// 📥 Схема (без ответов и ключевых слов)
 app.get('/api/schema', (req, res) => {
   const safe = JSON.parse(JSON.stringify(questions));
   safe.sections.forEach(s => s.questions.forEach(q => {
@@ -32,7 +35,25 @@ app.get('/api/schema', (req, res) => {
   res.json(safe);
 });
 
-app.post('/api/submit', (req, res) => {
+// 🔔 Уведомление в Telegram
+async function notifyAttestator(result) {
+  if (!TG_TOKEN || !TG_CHAT_ID) return;
+  try {
+    const text = `📝 *Новая аттестация*\n` +
+                 `👤 *ФИО:* ${result.userName}\n` +
+                 `💼 *Должность:* ${result.position}\n` +
+                 `📊 *Авто-балл:* ${result.autoScore.total}/${result.autoScore.max} (${result.autoScore.percentage}%)\n` +
+                 `🆔 *ID:* \`${result.id}\`\n` +
+                 `🔗 *Проверка:* ${process.env.RENDER_EXTERNAL_URL || 'https://ваш-сайт.onrender.com'}/review?pass=${ASSESSOR_PASS}`;
+    await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: TG_CHAT_ID, text, parse_mode: 'Markdown' })
+    });
+  } catch (err) { console.error('❌ TG error:', err.message); }
+}
+
+// 📤 Отправка + авто-подсчёт
+app.post('/api/submit', async (req, res) => {
   const { userName, position, answers } = req.body;
   if (!userName || !answers) return res.status(400).json({ error: 'Missing fields' });
 
@@ -77,9 +98,11 @@ app.post('/api/submit', (req, res) => {
   };
 
   writeFileSync(join(resDir, `result_${result.id}.json`), JSON.stringify(result, null, 2), 'utf-8');
+  notifyAttestator(result).catch(() => {}); 
   res.json({ success: true, resultId: result.id, score: result.autoScore });
 });
 
+// 📊 Результат для проверки
 app.get('/api/result/:id', (req, res) => {
   const path = join(resDir, `result_${req.params.id}.json`);
   try {
@@ -93,6 +116,7 @@ app.get('/api/result/:id', (req, res) => {
   } catch { res.status(404).json({ error: 'Not found' }); }
 });
 
+// 🔒 Панель аттестатора
 app.get('/review', (req, res) => {
   if (req.query.pass !== ASSESSOR_PASS) return res.status(401).type('html').send(`<h2 style="text-align:center;margin-top:3rem;">🔒 Доступ закрыт</h2><p style="text-align:center">Ссылка: /review?pass=${ASSESSOR_PASS}</p>`);
   res.sendFile(join(__dirname, 'public', 'review.html'));
